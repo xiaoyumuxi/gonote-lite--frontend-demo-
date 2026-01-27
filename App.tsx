@@ -1,45 +1,72 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Search, LogOut, ChevronRight, FileText, Settings, Menu, X, MoreHorizontal, Layout, Hash } from 'lucide-react';
+import { Plus, Search, LogOut, ChevronRight, FileText, Settings, Menu, X, MoreHorizontal, Layout, Hash, Home } from 'lucide-react';
 import { Note, Folder as FolderType, User } from './types';
 import Editor from './components/Editor';
-// ... (removed ArchitectureGuide import)
 
 // Mock Data
 const INITIAL_FOLDERS: FolderType[] = [
   { id: '1', name: 'Personal', icon: '👤' },
   { id: '2', name: 'Work', icon: '💼' },
   { id: '3', name: 'Ideas', icon: '💡' },
+  { id: '4', name: 'Family Shared', icon: '🏠' }, // New Family Folder
 ];
+
+const INITIAL_NOTE_FAMILY: Note = {
+  id: 'family-passwords',
+  title: 'Family Accounts & Passwords (Shared)',
+  content: `# 🔐 Family Shared Accounts
+
+> **IMPORTANT**: This document is strictly shared within our family group. Do not share this link publicly!
+
+## 📶 Wi-Fi
+**SSID**: OurHome_5G
+**Password**: \`HappyFamily2026!\`
+
+## 📺 Streaming Services
+### Netflix
+*   **Email**: family@gmail.com
+*   **Password**: \`Movies4Life!\`
+*   **Profiles**:
+    *   Dad (PIN: 1234)
+    *   Mom (PIN: 5678)
+    *   Kids (Restrictions On)
+
+### Spotify Family
+*   **Manager**: Mom
+*   **Address**: 123 Maple Street
+
+## 🏦 Utility Accounts
+| Service | Account # | Login |
+| :--- | :--- | :--- |
+| **Electricity** | 9988-7766 | user: dad / pass: \`PowerOn!\` |
+| **Water** | 5544-3322 | user: mom / pass: \`WaterFlow!\` |
+| **Internet** | 1122-3344 | user: fam / pass: \`FastNet!\` |
+
+## 🏥 Emergency Contacts
+*   **Grandma**: 555-0101
+*   **Dr. Smith (Pediatrician)**: 555-0202
+*   **Plumber (Joe)**: 555-0303
+`,
+  folderId: '4',
+  attachments: [],
+  comments: [],
+  shareConfig: {
+    isPublic: false, // STRICTLY PRIVATE
+    publicPermission: 'read',
+    collaborators: [
+      { userId: 'u2', username: 'Mom', avatarColor: 'bg-green-500', permission: 'edit' },
+      { userId: 'u3', username: 'Sis', avatarColor: 'bg-yellow-500', permission: 'read' }
+    ]
+  },
+  createdAt: Date.now(),
+  updatedAt: Date.now()
+};
 
 const INITIAL_NOTE: Note = {
   id: 'welcome-note',
   title: 'Welcome to GoNote',
   content: `# Welcome to GoNote
-
-This is a **lightweight**, *fast* Markdown note-taking application inspired by the clean aesthetics of Notion.
-
-## Features 🚀
-
-### 1. Collaboration (New!)
-- [x] **@Mentions**: Type '@' to tag someone. Try it: @Alice
-- [x] **Comments**: Select text, Right Click -> Comment.
-- [x] **Sharing**: Click 'Share' top right to generate links.
-
-### 2. Powerful Editing
-> "Simplicity is the ultimate sophistication." - Leonardo da Vinci
-
-Use the toolbar or right-click context menu to format your text.
-
-## Code Example
-
-\`\`\`go
-package main
-import "fmt"
-func main() {
-    fmt.Println("Hello, collaborative world!")
-}
-\`\`\`
-`,
+// ... (rest of content)`,
   folderId: '1',
   attachments: [],
   comments: [
@@ -82,11 +109,11 @@ const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // App Data State
+  // State (Mock Data)
   const [folders, setFolders] = useState<FolderType[]>(INITIAL_FOLDERS);
-  const [notes, setNotes] = useState<Note[]>([INITIAL_NOTE, INITIAL_NOTE_2]);
-  const [activeNoteId, setActiveNoteId] = useState<string | null>(INITIAL_NOTE.id);
+  const [notes, setNotes] = useState<Note[]>([INITIAL_NOTE, INITIAL_NOTE_2, INITIAL_NOTE_FAMILY]);
   const [activeFolderId, setActiveFolderId] = useState<string>('1');
+  const [activeNoteId, setActiveNoteId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   // Removed showArchGuide state
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
