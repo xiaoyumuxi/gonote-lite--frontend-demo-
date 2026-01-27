@@ -16,10 +16,18 @@ export interface Comment {
   createdAt: number;
 }
 
-export interface ShareConfig {
-  isShared: boolean;
+export interface Collaborator {
+  userId: string;
+  username: string;
+  avatarColor: string;
   permission: 'read' | 'edit';
+}
+
+export interface ShareConfig {
+  isPublic: boolean;
+  publicPermission: 'read' | 'edit';
   url?: string;
+  collaborators: Collaborator[];
 }
 
 export interface Note {

@@ -45,7 +45,14 @@ func main() {
   comments: [
     { id: 'c1', userId: 'u2', username: 'Alice', content: 'Love this new design!', quotedText: 'clean aesthetics of Notion', createdAt: Date.now() - 100000 }
   ],
-  shareConfig: { isShared: true, permission: 'read', url: 'https://gonote.app/s/demo123' },
+  shareConfig: {
+    isPublic: true,
+    publicPermission: 'read',
+    url: 'https://gonote.app/s/demo123',
+    collaborators: [
+      { userId: 'u2', username: 'Alice', avatarColor: 'bg-green-500', permission: 'edit' }
+    ]
+  },
   createdAt: Date.now(),
   updatedAt: Date.now()
 };
@@ -131,7 +138,7 @@ const App: React.FC = () => {
       folderId: activeFolderId,
       attachments: [],
       comments: [],
-      shareConfig: { isShared: false, permission: 'read' },
+      shareConfig: { isPublic: false, publicPermission: 'read', collaborators: [] },
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };

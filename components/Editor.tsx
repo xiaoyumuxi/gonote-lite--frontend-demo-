@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
-import { Note, ViewMode, Attachment, Comment, ShareConfig, User } from '../types';
+import { Note, ViewMode, Attachment, Comment, ShareConfig, User, Collaborator } from '../types';
 import {
   Wand2, RefreshCw,
   Bold, Italic, List, Heading, Code, FileText, Trash2,
@@ -46,7 +46,7 @@ const Editor: React.FC<EditorProps> = ({ note, notes, onUpdate, onNavigate, onDe
   const [isAiProcessing, setIsAiProcessing] = useState(false);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [comments, setComments] = useState<Comment[]>([]);
-  const [shareConfig, setShareConfig] = useState<ShareConfig>({ isShared: false, permission: 'read' });
+  const [shareConfig, setShareConfig] = useState<ShareConfig>({ isPublic: false, publicPermission: 'read', collaborators: [] });
 
   // UI States
   const [showAttachments, setShowAttachments] = useState(false);
@@ -68,13 +68,14 @@ const Editor: React.FC<EditorProps> = ({ note, notes, onUpdate, onNavigate, onDe
       setTitle(note.title);
       setAttachments(note.attachments || []);
       setComments(note.comments || []);
-      setShareConfig(note.shareConfig || { isShared: false, permission: 'read' });
+      setComments(note.comments || []);
+      setShareConfig(note.shareConfig || { isPublic: false, publicPermission: 'read', collaborators: [] });
     } else {
       setContent('');
       setTitle('');
       setAttachments([]);
       setComments([]);
-      setShareConfig({ isShared: false, permission: 'read' });
+      setShareConfig({ isPublic: false, publicPermission: 'read', collaborators: [] });
     }
   }, [note]);
 
@@ -213,11 +214,24 @@ const Editor: React.FC<EditorProps> = ({ note, notes, onUpdate, onNavigate, onDe
   };
 
   // --- Share Logic ---
-  const toggleShare = () => {
-    const newConfig = { ...shareConfig, isShared: !shareConfig.isShared };
-    if (newConfig.isShared && !newConfig.url) {
+  const togglePublicShare = () => {
+    const newConfig = { ...shareConfig, isPublic: !shareConfig.isPublic };
+    if (newConfig.isPublic && !newConfig.url) {
       newConfig.url = `https://gonote.app/s/${Math.random().toString(36).substring(7)}`;
     }
+    setShareConfig(newConfig);
+    if (note) onUpdate({ ...note, shareConfig: newConfig });
+  };
+
+  const handleInvite = (username: string) => {
+    // Mock Invite
+    const newCollab: Collaborator = {
+      userId: Date.now().toString(),
+      username: username,
+      avatarColor: ['bg-red-500', 'bg-blue-500', 'bg-green-500', 'bg-yellow-500'][Math.floor(Math.random() * 4)],
+      permission: 'read'
+    };
+    const newConfig = { ...shareConfig, collaborators: [...shareConfig.collaborators, newCollab] };
     setShareConfig(newConfig);
     if (note) onUpdate({ ...note, shareConfig: newConfig });
   };
@@ -277,61 +291,118 @@ const Editor: React.FC<EditorProps> = ({ note, notes, onUpdate, onNavigate, onDe
 
         <div className="flex items-center gap-1">
           {/* Collaborators (Fake) */}
-          {shareConfig.isShared && (
+          {/* Collaborators (Fake - Using real list now) */}
+          {shareConfig.collaborators.length > 0 && (
             <div className="flex -space-x-2 mr-3">
-              <div className="w-6 h-6 rounded-full bg-green-500 border-2 border-white" title="Alice"></div>
-              <div className="w-6 h-6 rounded-full bg-yellow-500 border-2 border-white" title="Bob"></div>
+              {shareConfig.collaborators.map(c => (
+                <div key={c.userId} className={`w-6 h-6 rounded-full ${c.avatarColor} border-2 border-white flex items-center justify-center text-[8px] text-white`} title={c.username}>
+                  {c.username[0].toUpperCase()}
+                </div>
+              ))}
             </div>
           )}
 
           <div className="relative share-container">
-            <button onClick={() => setShowSharePopover(!showSharePopover)} className={`px-2 py-1 rounded text-sm font-medium transition-colors flex items-center gap-1 ${shareConfig.isShared ? 'text-blue-600 bg-blue-50' : 'text-notion-dim hover:bg-notion-hover text-notion-text'}`}>
-              {shareConfig.isShared ? <Globe className="w-3.5 h-3.5" /> : <Share className="w-3.5 h-3.5" />}
+            <button onClick={() => setShowSharePopover(!showSharePopover)} className={`px-2 py-1 rounded text-sm font-medium transition-colors flex items-center gap-1 ${shareConfig.isPublic ? 'text-blue-600 bg-blue-50' : 'text-notion-dim hover:bg-notion-hover text-notion-text'}`}>
+              {shareConfig.isPublic ? <Globe className="w-3.5 h-3.5" /> : <Share className="w-3.5 h-3.5" />}
               Share
             </button>
 
             {/* Share Popover */}
             {showSharePopover && (
-              <div className="absolute top-full right-0 mt-2 w-72 bg-white rounded-lg shadow-context border border-notion-border p-3 z-50 animate-fade-in">
-                <div className="flex items-center justify-between mb-3">
+              <div className="absolute top-full right-0 mt-2 w-80 bg-white rounded-lg shadow-context border border-notion-border p-3 z-50 animate-fade-in text-left">
+                {/* 1. Public Link Toggle */}
+                <div className="flex items-center justify-between mb-4">
                   <div className="flex items-center gap-2">
-                    <Globe className={`w-4 h-4 ${shareConfig.isShared ? 'text-blue-500' : 'text-notion-dim'}`} />
+                    <Globe className={`w-4 h-4 ${shareConfig.isPublic ? 'text-blue-500' : 'text-notion-dim'}`} />
                     <div>
                       <p className="text-sm font-medium text-notion-text">Share to web</p>
-                      <p className="text-xs text-notion-dim">Publish and share link with anyone</p>
+                      <p className="text-xs text-notion-dim">Anyone with link can {shareConfig.publicPermission}</p>
                     </div>
                   </div>
                   <button
-                    onClick={toggleShare}
-                    className={`w-10 h-5 rounded-full relative transition-colors ${shareConfig.isShared ? 'bg-blue-500' : 'bg-notion-dim/30'}`}
+                    onClick={togglePublicShare}
+                    className={`w-10 h-5 rounded-full relative transition-colors ${shareConfig.isPublic ? 'bg-blue-500' : 'bg-notion-dim/30'}`}
                   >
-                    <div className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${shareConfig.isShared ? 'translate-x-5' : 'translate-x-0'}`} />
+                    <div className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${shareConfig.isPublic ? 'translate-x-5' : 'translate-x-0'}`} />
                   </button>
                 </div>
 
-                {shareConfig.isShared && (
-                  <div className="space-y-3 pt-2 border-t border-notion-border">
-                    <div className="flex gap-2">
-                      <input readOnly value={shareConfig.url} className="flex-1 text-xs bg-notion-sidebar p-1.5 rounded border border-notion-border text-notion-dim truncate" />
-                      <button onClick={copyShareLink} className="p-1.5 bg-white border border-notion-border rounded hover:bg-notion-hover text-notion-text text-xs font-medium">Copy</button>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-notion-text">Permissions</span>
-                      <select
-                        value={shareConfig.permission}
-                        onChange={(e) => {
-                          const newCfg = { ...shareConfig, permission: e.target.value as 'read' | 'edit' };
-                          setShareConfig(newCfg);
-                          onUpdate({ ...note, shareConfig: newCfg });
-                        }}
-                        className="text-xs bg-transparent text-notion-dim hover:text-notion-text focus:outline-none"
-                      >
-                        <option value="read">Can read</option>
-                        <option value="edit">Can edit</option>
-                      </select>
-                    </div>
+                {shareConfig.isPublic && (
+                  <div className="flex gap-2 mb-4">
+                    <input readOnly value={shareConfig.url} className="flex-1 text-xs bg-notion-sidebar p-1.5 rounded border border-notion-border text-notion-dim truncate" />
+                    <button onClick={copyShareLink} className="p-1.5 bg-white border border-notion-border rounded hover:bg-notion-hover text-notion-text text-xs font-medium">Copy</button>
                   </div>
                 )}
+
+                <div className="border-t border-notion-border my-2" />
+
+                {/* 2. Invite People */}
+                <div className="mb-4">
+                  <p className="text-xs font-semibold text-notion-dim mb-2 uppercase tracking-wider">People with access</p>
+                  <div className="flex gap-2 mb-3">
+                    <input
+                      placeholder="Add people by username..."
+                      className="flex-1 text-sm border border-notion-border rounded px-2 py-1 focus:outline-none focus:border-blue-400"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          const val = e.currentTarget.value;
+                          if (val) handleInvite(val);
+                          e.currentTarget.value = '';
+                        }
+                      }}
+                    />
+                    <button className="text-xs bg-notion-text text-white px-2 py-1 rounded">Invite</button>
+                  </div>
+
+                  <div className="space-y-2 max-h-40 overflow-y-auto">
+                    {/* Owner */}
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <div className={`w-6 h-6 rounded-full ${currentUser.avatarColor || 'bg-notion-text'} text-white flex items-center justify-center text-[10px]`}>
+                          {currentUser.username[0].toUpperCase()}
+                        </div>
+                        <div className="text-sm">
+                          <span className="font-medium">{currentUser.username}</span> <span className="text-notion-dim">(You)</span>
+                        </div>
+                      </div>
+                      <span className="text-xs text-notion-dim">Owner</span>
+                    </div>
+
+                    {/* Collaborators */}
+                    {shareConfig.collaborators.map(c => (
+                      <div key={c.userId} className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <div className={`w-6 h-6 rounded-full ${c.avatarColor} text-white flex items-center justify-center text-[10px]`}>
+                            {c.username[0].toUpperCase()}
+                          </div>
+                          <span className="text-sm font-medium">{c.username}</span>
+                        </div>
+
+                        <select
+                          value={c.permission}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            if (val === 'remove') {
+                              const newCollabs = shareConfig.collaborators.filter(u => u.userId !== c.userId);
+                              setShareConfig({ ...shareConfig, collaborators: newCollabs });
+                              if (note) onUpdate({ ...note, shareConfig: { ...shareConfig, collaborators: newCollabs } });
+                            } else {
+                              const newCollabs = shareConfig.collaborators.map(u => u.userId === c.userId ? { ...u, permission: val as 'read' | 'edit' } : u);
+                              setShareConfig({ ...shareConfig, collaborators: newCollabs });
+                              if (note) onUpdate({ ...note, shareConfig: { ...shareConfig, collaborators: newCollabs } });
+                            }
+                          }}
+                          className="text-xs bg-transparent text-notion-dim hover:text-notion-text focus:outline-none cursor-pointer"
+                        >
+                          <option value="read">Can read</option>
+                          <option value="edit">Can edit</option>
+                          <option value="remove" className="text-red-500">Remove</option>
+                        </select>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               </div>
             )}
           </div>
