@@ -2,16 +2,15 @@ package main
 
 import (
 	"log"
-	"net/http"
+	"gonote/db"
+	"gonote/handlers"
 
 	"github.com/gin-gonic/gin"
-	"gorm.io/driver/sqlite"
-	"gorm.io/gorm"
 )
 
 func main() {
-	// Initialize DB (Mock for now until deps are installed)
-	// db, err := gorm.Open(sqlite.Open("gonote.db"), &gorm.Config{})
+	// Initialize DB
+	db.Connect()
 	
 	r := gin.Default()
 
@@ -27,11 +26,26 @@ func main() {
 		c.Next()
 	})
 
-	r.GET("/", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{
-			"message": "Welcome to GoNote Backend!",
-		})
+	// Simple Mock Auth Middleware
+	r.Use(func(c *gin.Context) {
+		// In real world, parse JWT. For now, assume User ID u1 if no auth
+		c.Set("userId", "u1") 
+		c.Next()
 	})
+
+	api := r.Group("/api")
+	{
+		api.POST("/auth/login", handlers.Login)
+		
+		api.GET("/events", handlers.GetEvents)
+		api.POST("/events", handlers.CreateEvent)
+		api.DELETE("/events/:id", handlers.DeleteEvent)
+		
+		api.GET("/notes", handlers.GetNotes)
+		api.POST("/notes", handlers.CreateNote)
+		api.PUT("/notes/:id", handlers.UpdateNote)
+		api.DELETE("/notes/:id", handlers.DeleteNote)
+	}
 
 	log.Println("Server starting on :8080")
 	r.Run(":8080")

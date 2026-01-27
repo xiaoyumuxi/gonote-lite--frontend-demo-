@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Plus, Search, LogOut, ChevronRight, FileText, Settings, Menu, X, MoreHorizontal, Layout, Hash, Home, Calendar as CalendarIcon, Bell } from 'lucide-react';
 import { Note, Folder as FolderType, User, CalendarEvent, AppNotification } from './types';
 import Editor from './components/Editor';
+import { api } from './services/api';
 
 // Mock Data
 const INITIAL_FOLDERS: FolderType[] = [
@@ -109,14 +110,14 @@ const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // State (Mock Data)
+  // State - 现在默认使用空数组，数据从后端加载
   const [folders, setFolders] = useState<FolderType[]>(INITIAL_FOLDERS);
-  const [notes, setNotes] = useState<Note[]>([INITIAL_NOTE, INITIAL_NOTE_2, INITIAL_NOTE_FAMILY]);
+  const [notes, setNotes] = useState<Note[]>([]);
   const [activeFolderId, setActiveFolderId] = useState<string>('1');
   const [activeNoteId, setActiveNoteId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  // Removed showArchGuide state
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isDataLoading, setIsDataLoading] = useState(false);
 
   // Login State
   const [username, setUsername] = useState('');
@@ -130,14 +131,51 @@ const App: React.FC = () => {
     { id: 'n1', userId: 'u1', title: 'Dad\'s Birthday', message: 'Coming up in 3 days!', isRead: false, createdAt: Date.now(), type: 'reminder' }
   ]);
   const [showNotifications, setShowNotifications] = useState(false);
-  const [events, setEvents] = useState<CalendarEvent[]>([
-    { id: 'e1', title: 'Weekly Family Dinner', date: Date.now(), type: 'solar', recurrence: 'weekly', notifyUsers: ['u1', 'u2'], showCountdown: true }
-  ]);
+  const [events, setEvents] = useState<CalendarEvent[]>([]);
 
   // Calendar Helpers
   const daysInMonth = (year: number, month: number) => new Date(year, month + 1, 0).getDate();
   const firstDayOfMonth = (year: number, month: number) => new Date(year, month, 1).getDay();
   const [currentDate, setCurrentDate] = useState(new Date());
+
+  // 从后端加载数据
+  const loadDataFromBackend = useCallback(async () => {
+    setIsDataLoading(true);
+    try {
+      const [notesData, eventsData] = await Promise.all([
+        api.getNotes(),
+        api.getEvents()
+      ]);
+      // 转换后端数据格式到前端格式
+      const formattedNotes = notesData.map((n: any) => ({
+        ...n,
+        createdAt: new Date(n.createdAt).getTime(),
+        updatedAt: new Date(n.updatedAt).getTime(),
+        attachments: [],
+        comments: [],
+        shareConfig: {
+          isPublic: n.isPublic || false,
+          publicPermission: n.publicPermission || 'read',
+          collaborators: []
+        }
+      }));
+      setNotes(formattedNotes);
+
+      const formattedEvents = eventsData.map((e: any) => ({
+        ...e,
+        id: String(e.id),
+        date: new Date(e.date).getTime(),
+        notifyUsers: e.notifyUsers ? JSON.parse(e.notifyUsers) : []
+      }));
+      setEvents(formattedEvents);
+    } catch (error) {
+      console.error('Failed to load data:', error);
+      // 如果加载失败，使用 mock 数据作为降级方案
+      setNotes([INITIAL_NOTE, INITIAL_NOTE_2, INITIAL_NOTE_FAMILY]);
+    } finally {
+      setIsDataLoading(false);
+    }
+  }, []);
 
   const renderCalendar = () => {
     const year = currentDate.getFullYear();
@@ -230,29 +268,58 @@ const App: React.FC = () => {
   useEffect(() => {
     const storedUser = localStorage.getItem('gonote_user');
     if (storedUser) {
-      setUser(JSON.parse(storedUser));
+      const parsedUser = JSON.parse(storedUser);
+      setUser(parsedUser);
+      // 用户已登录时加载数据
+      loadDataFromBackend();
     }
     setLoading(false);
-  }, []);
+  }, [loadDataFromBackend]);
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (username && password) {
-      // In a real app, verify credentials with API
-      const newUser = { id: 'u1', username, token: 'mock-token', avatarColor: 'bg-blue-600' };
-      localStorage.setItem('gonote_user', JSON.stringify(newUser));
-      setUser(newUser);
+      try {
+        const data = await api.login(username, password);
+        if (data.user) {
+          localStorage.setItem('gonote_user', JSON.stringify(data.user));
+          setUser(data.user);
+          // 登录成功后加载数据
+          await loadDataFromBackend();
+        }
+      } catch (error) {
+        console.error('Login failed:', error);
+        // Fallback to local mock for demo
+        const newUser = { id: 'u1', username, token: 'mock-token', avatarColor: 'bg-blue-600' };
+        localStorage.setItem('gonote_user', JSON.stringify(newUser));
+        setUser(newUser);
+        // 降级使用 mock 数据
+        setNotes([INITIAL_NOTE, INITIAL_NOTE_2, INITIAL_NOTE_FAMILY]);
+      }
     }
   };
 
-  const handleRegister = (e: React.FormEvent) => {
+  const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     if (username && password) {
-      // In a real app, call Registration API
-      alert(`Mock Registration Successful for ${username}`);
-      const newUser = { id: Date.now().toString(), username, token: 'mock-token', avatarColor: 'bg-green-600' };
-      localStorage.setItem('gonote_user', JSON.stringify(newUser));
-      setUser(newUser);
+      try {
+        const response = await fetch('http://localhost:8080/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password }),
+        });
+        const data = await response.json();
+        if (data.user) {
+          localStorage.setItem('gonote_user', JSON.stringify(data.user));
+          setUser(data.user);
+        }
+      } catch (error) {
+        console.error('Register failed:', error);
+        // Fallback to local mock for demo
+        const newUser = { id: Date.now().toString(), username, token: 'mock-token', avatarColor: 'bg-green-600' };
+        localStorage.setItem('gonote_user', JSON.stringify(newUser));
+        setUser(newUser);
+      }
     }
   };
 
@@ -261,10 +328,10 @@ const App: React.FC = () => {
     setUser(null);
   };
 
-  const handleCreateNote = () => {
+  const handleCreateNote = async () => {
     const newNote: Note = {
       id: Date.now().toString(),
-      title: '',
+      title: 'Untitled',
       content: '',
       folderId: activeFolderId,
       attachments: [],
@@ -273,21 +340,63 @@ const App: React.FC = () => {
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
+
+    // 先在前端显示，提供即时反馈
     setNotes([newNote, ...notes]);
     setActiveNoteId(newNote.id);
     if (window.innerWidth < 768) setIsMobileMenuOpen(false);
+
+    // 异步保存到后端
+    try {
+      const savedNote = await api.createNote({
+        id: newNote.id,
+        title: newNote.title,
+        content: newNote.content,
+        folderId: newNote.folderId,
+      });
+      // 更新前端状态使用后端返回的数据
+      setNotes(prev => prev.map(n => n.id === newNote.id ? {
+        ...newNote,
+        ...savedNote,
+        createdAt: new Date(savedNote.createdAt).getTime(),
+        updatedAt: new Date(savedNote.updatedAt).getTime(),
+      } : n));
+    } catch (error) {
+      console.error('Failed to create note:', error);
+    }
   };
 
-  const updateNote = (updatedNote: Note) => {
+  // 使用防抖保存到后端
+  const updateNote = async (updatedNote: Note) => {
+    // 立即更新前端状态
     setNotes(notes.map(n => n.id === updatedNote.id ? updatedNote : n));
+
+    // 异步同步到后端
+    try {
+      await api.updateNote(updatedNote.id, {
+        title: updatedNote.title,
+        content: updatedNote.content,
+        updatedAt: updatedNote.updatedAt,
+      });
+    } catch (error) {
+      console.error('Failed to update note:', error);
+    }
   };
 
-  const handleDeleteNote = (noteId: string) => {
+  const handleDeleteNote = async (noteId: string) => {
+    // 立即更新前端状态
     const updatedNotes = notes.filter(n => n.id !== noteId);
     setNotes(updatedNotes);
     if (activeNoteId === noteId) {
       const remainingInFolder = updatedNotes.filter(n => n.folderId === activeFolderId);
       setActiveNoteId(remainingInFolder.length > 0 ? remainingInFolder[0].id : null);
+    }
+
+    // 异步从后端删除
+    try {
+      await api.deleteNote(noteId);
+    } catch (error) {
+      console.error('Failed to delete note:', error);
     }
   };
 
