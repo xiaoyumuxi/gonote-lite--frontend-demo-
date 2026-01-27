@@ -1,0 +1,5 @@
+{
+  "name": "GoNote Lite (Frontend Demo)",
+  "description": "A lightweight, responsive Markdown note-taking application designed for efficiency. Includes an architecture guide for small server deployments.",
+  "requestFramePermissions": []
+}

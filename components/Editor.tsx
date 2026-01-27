@@ -1,0 +1,495 @@
+import React, { useState, useEffect, useRef } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import rehypeRaw from 'rehype-raw';
+import { Note, ViewMode, Attachment, Comment, ShareConfig, User } from '../types';
+import {
+  Wand2, RefreshCw,
+  Bold, Italic, List, Heading, Code, FileText, Trash2,
+  Paperclip, X, Highlighter, LayoutPanelLeft, Eye, Plus,
+  Share, Globe, Link as LinkIcon, Lock, MessageSquare, Send, AtSign
+} from 'lucide-react';
+import { polishContent } from '../services/aiService';
+
+// Mock Users for Mentions
+const MOCK_USERS: User[] = [
+  { id: 'u1', username: 'You', token: '', avatarColor: 'bg-blue-500' },
+  { id: 'u2', username: 'Alice', token: '', avatarColor: 'bg-green-500' },
+  { id: 'u3', username: 'Bob', token: '', avatarColor: 'bg-yellow-500' },
+  { id: 'u4', username: 'Charlie', token: '', avatarColor: 'bg-red-500' },
+];
+
+interface EditorProps {
+  note: Note | null;
+  notes: Note[];
+  onUpdate: (updatedNote: Note) => void;
+  onNavigate: (noteId: string) => void;
+  onDelete: (noteId: string) => void;
+  currentUser: User;
+}
+
+const Editor: React.FC<EditorProps> = ({ note, notes, onUpdate, onNavigate, onDelete, currentUser }) => {
+  const [content, setContent] = useState('');
+  const [title, setTitle] = useState('');
+  const [viewMode, setViewMode] = useState<ViewMode>(ViewMode.SPLIT);
+  const [isAiProcessing, setIsAiProcessing] = useState(false);
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [comments, setComments] = useState<Comment[]>([]);
+  const [shareConfig, setShareConfig] = useState<ShareConfig>({ isShared: false, permission: 'read' });
+
+  // UI States
+  const [showAttachments, setShowAttachments] = useState(false);
+  const [showComments, setShowComments] = useState(false);
+  const [showSharePopover, setShowSharePopover] = useState(false);
+  const [contextMenu, setContextMenu] = useState<{ x: number, y: number } | null>(null);
+  const [mentionMenu, setMentionMenu] = useState<{ x: number, y: number, filter: string } | null>(null);
+
+  const [newComment, setNewComment] = useState('');
+  const [activeQuote, setActiveQuote] = useState('');
+
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const attachmentInputRef = useRef<HTMLInputElement>(null);
+  const contextMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (note) {
+      setContent(note.content);
+      setTitle(note.title);
+      setAttachments(note.attachments || []);
+      setComments(note.comments || []);
+      setShareConfig(note.shareConfig || { isShared: false, permission: 'read' });
+    } else {
+      setContent('');
+      setTitle('');
+      setAttachments([]);
+      setComments([]);
+      setShareConfig({ isShared: false, permission: 'read' });
+    }
+  }, [note]);
+
+  // Click outside handlers
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      if (contextMenuRef.current && !contextMenuRef.current.contains(e.target as Node)) {
+        setContextMenu(null);
+      }
+      // Simple logic to close share popover if clicked outside
+      const target = e.target as HTMLElement;
+      if (!target.closest('.share-container')) {
+        setShowSharePopover(false);
+      }
+      if (!target.closest('.mention-menu')) {
+        setMentionMenu(null);
+      }
+    };
+    document.addEventListener('click', handleClick);
+    return () => document.removeEventListener('click', handleClick);
+  }, []);
+
+  const handleSave = (overrideContent?: string) => {
+    if (!note) return;
+    onUpdate({
+      ...note,
+      title,
+      content: overrideContent !== undefined ? overrideContent : content,
+      attachments,
+      comments,
+      shareConfig,
+      updatedAt: Date.now(),
+    });
+  };
+
+  const handlePolish = async () => {
+    setIsAiProcessing(true);
+    try {
+      const polished = await polishContent(content);
+      setContent(polished);
+    } catch (e) {
+      alert("AI Service Error");
+    } finally {
+      setIsAiProcessing(false);
+    }
+  };
+
+  const insertText = (before: string, after: string = '') => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const previousContent = textarea.value;
+    const selection = previousContent.substring(start, end);
+    const newContent = previousContent.substring(0, start) + before + selection + after + previousContent.substring(end);
+    setContent(newContent);
+    setTimeout(() => {
+      textarea.focus();
+      textarea.setSelectionRange(start + before.length, end + before.length);
+    }, 0);
+  };
+
+  // --- Context Menu & Commenting ---
+  const handleContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const textarea = textareaRef.current;
+    if (textarea) {
+      const selection = textarea.value.substring(textarea.selectionStart, textarea.selectionEnd);
+      if (selection) {
+        setActiveQuote(selection);
+      } else {
+        setActiveQuote('');
+      }
+    }
+    setContextMenu({ x: e.clientX, y: e.clientY });
+  };
+
+  const addComment = () => {
+    setShowComments(true);
+    setContextMenu(null);
+  };
+
+  const submitComment = () => {
+    if (!newComment.trim()) return;
+    const comment: Comment = {
+      id: Date.now().toString(),
+      userId: currentUser.id,
+      username: currentUser.username,
+      content: newComment,
+      quotedText: activeQuote,
+      createdAt: Date.now()
+    };
+    const updatedComments = [...comments, comment];
+    setComments(updatedComments);
+    setNewComment('');
+    setActiveQuote('');
+    if (note) onUpdate({ ...note, comments: updatedComments });
+  };
+
+  const applyColor = (color: string) => {
+    insertText(`<span style="color: ${color}">`, `</span>`);
+    setContextMenu(null);
+  };
+
+  // --- Mention Logic ---
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === '@') {
+      const textarea = e.currentTarget;
+      const { selectionStart } = textarea;
+      // Get exact coordinates for the menu (simplified approximation)
+      const rect = textarea.getBoundingClientRect();
+      const x = rect.left + 20; // Very rough approximation
+      const y = rect.top + (selectionStart / 50) * 20; // Extremely rough approximation, in real app use generic-caret-coordinates
+      setMentionMenu({ x, y, filter: '' });
+    }
+  };
+
+  const insertMention = (username: string) => {
+    // Replaces the '@' typed or inserts new
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    // Simple append for demo (improving caret logic requires more complex code)
+    insertText(`@${username} `);
+    setMentionMenu(null);
+  };
+
+  // --- Share Logic ---
+  const toggleShare = () => {
+    const newConfig = { ...shareConfig, isShared: !shareConfig.isShared };
+    if (newConfig.isShared && !newConfig.url) {
+      newConfig.url = `https://gonote.app/s/${Math.random().toString(36).substring(7)}`;
+    }
+    setShareConfig(newConfig);
+    if (note) onUpdate({ ...note, shareConfig: newConfig });
+  };
+
+  const copyShareLink = () => {
+    if (shareConfig.url) {
+      navigator.clipboard.writeText(shareConfig.url);
+      alert("Link copied to clipboard!");
+    }
+  };
+
+  // --- Render ---
+
+  if (!note) {
+    return (
+      <div className="h-full flex items-center justify-center bg-white text-notion-dim">
+        <div className="text-center animate-fade-in">
+          <div className="w-16 h-16 bg-notion-sidebar rounded-2xl mx-auto mb-4 flex items-center justify-center">
+            <FileText className="w-8 h-8 opacity-50" />
+          </div>
+          <p className="text-lg font-medium">Select or create a page</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col h-full bg-white relative group/editor">
+
+      {/* Top Navigation Bar */}
+      <div className="flex items-center justify-between px-4 py-3 sticky top-0 bg-white/80 backdrop-blur-md z-20 border-b border-transparent hover:border-notion-border transition-colors">
+        <div className="flex items-center gap-2 text-xs text-notion-dim overflow-hidden">
+          <span className="truncate hover:text-notion-text cursor-pointer hover:underline">Personal</span>
+          <span className="opacity-40">/</span>
+          <span className="truncate font-medium text-notion-text">{title || 'Untitled'}</span>
+        </div>
+
+        <div className="flex items-center gap-1">
+          {/* Collaborators (Fake) */}
+          {shareConfig.isShared && (
+            <div className="flex -space-x-2 mr-3">
+              <div className="w-6 h-6 rounded-full bg-green-500 border-2 border-white" title="Alice"></div>
+              <div className="w-6 h-6 rounded-full bg-yellow-500 border-2 border-white" title="Bob"></div>
+            </div>
+          )}
+
+          <div className="relative share-container">
+            <button onClick={() => setShowSharePopover(!showSharePopover)} className={`px-2 py-1 rounded text-sm font-medium transition-colors flex items-center gap-1 ${shareConfig.isShared ? 'text-blue-600 bg-blue-50' : 'text-notion-dim hover:bg-notion-hover text-notion-text'}`}>
+              {shareConfig.isShared ? <Globe className="w-3.5 h-3.5" /> : <Share className="w-3.5 h-3.5" />}
+              Share
+            </button>
+
+            {/* Share Popover */}
+            {showSharePopover && (
+              <div className="absolute top-full right-0 mt-2 w-72 bg-white rounded-lg shadow-context border border-notion-border p-3 z-50 animate-fade-in">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <Globe className={`w-4 h-4 ${shareConfig.isShared ? 'text-blue-500' : 'text-notion-dim'}`} />
+                    <div>
+                      <p className="text-sm font-medium text-notion-text">Share to web</p>
+                      <p className="text-xs text-notion-dim">Publish and share link with anyone</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={toggleShare}
+                    className={`w-10 h-5 rounded-full relative transition-colors ${shareConfig.isShared ? 'bg-blue-500' : 'bg-notion-dim/30'}`}
+                  >
+                    <div className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${shareConfig.isShared ? 'translate-x-5' : 'translate-x-0'}`} />
+                  </button>
+                </div>
+
+                {shareConfig.isShared && (
+                  <div className="space-y-3 pt-2 border-t border-notion-border">
+                    <div className="flex gap-2">
+                      <input readOnly value={shareConfig.url} className="flex-1 text-xs bg-notion-sidebar p-1.5 rounded border border-notion-border text-notion-dim truncate" />
+                      <button onClick={copyShareLink} className="p-1.5 bg-white border border-notion-border rounded hover:bg-notion-hover text-notion-text text-xs font-medium">Copy</button>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-notion-text">Permissions</span>
+                      <select
+                        value={shareConfig.permission}
+                        onChange={(e) => {
+                          const newCfg = { ...shareConfig, permission: e.target.value as 'read' | 'edit' };
+                          setShareConfig(newCfg);
+                          onUpdate({ ...note, shareConfig: newCfg });
+                        }}
+                        className="text-xs bg-transparent text-notion-dim hover:text-notion-text focus:outline-none"
+                      >
+                        <option value="read">Can read</option>
+                        <option value="edit">Can edit</option>
+                      </select>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="w-px h-4 bg-notion-border mx-2" />
+
+          <button onClick={() => setShowComments(!showComments)} className={`p-1.5 rounded transition-colors relative ${showComments ? 'text-blue-600 bg-blue-50' : 'text-notion-dim hover:bg-notion-hover hover:text-notion-text'}`} title="Comments">
+            <MessageSquare className="w-4 h-4" />
+            {comments.length > 0 && <span className="absolute top-1 right-1 w-1.5 h-1.5 bg-red-500 rounded-full" />}
+          </button>
+
+          <div className="flex bg-notion-sidebar rounded-md p-0.5 ml-2">
+            <button onClick={() => setViewMode(ViewMode.EDIT)} className={`p-1 rounded ${viewMode === ViewMode.EDIT ? 'bg-white shadow-sm text-notion-text' : 'text-notion-dim'}`} title="Edit Only"><FileText className="w-4 h-4" /></button>
+            <button onClick={() => setViewMode(ViewMode.SPLIT)} className={`p-1 rounded ${viewMode === ViewMode.SPLIT ? 'bg-white shadow-sm text-notion-text' : 'text-notion-dim'}`} title="Split View"><LayoutPanelLeft className="w-4 h-4" /></button>
+            <button onClick={() => setViewMode(ViewMode.PREVIEW)} className={`p-1 rounded ${viewMode === ViewMode.PREVIEW ? 'bg-white shadow-sm text-notion-text' : 'text-notion-dim'}`} title="Read Only"><Eye className="w-4 h-4" /></button>
+          </div>
+
+          <button onClick={handlePolish} disabled={isAiProcessing} className="ml-2 p-1.5 text-notion-dim hover:text-purple-600 hover:bg-purple-50 rounded transition-colors" title="AI Polish">
+            {isAiProcessing ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
+          </button>
+          <button onClick={() => onDelete(note.id)} className="p-1.5 text-notion-dim hover:text-red-600 hover:bg-red-50 rounded transition-colors">
+            <Trash2 className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+
+      {/* Editor Content */}
+      <div className="flex-1 overflow-hidden flex flex-row">
+
+        {/* EDIT PANE */}
+        {(viewMode === ViewMode.EDIT || viewMode === ViewMode.SPLIT) && (
+          <div className="flex-1 h-full overflow-y-auto px-6 md:px-12 py-8 scroll-smooth relative">
+            <div className="max-w-[800px] mx-auto min-h-[500px]">
+              <input
+                type="text"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                onBlur={() => handleSave()}
+                placeholder="Untitled"
+                className="w-full text-4xl md:text-5xl font-bold text-notion-text placeholder:text-notion-dim/30 bg-transparent border-none focus:outline-none mb-6 leading-tight"
+              />
+
+              {/* Toolbar */}
+              <div className="flex items-center gap-2 mb-4 pb-2 border-b border-notion-border sticky top-[-20px] bg-white z-10 opacity-60 hover:opacity-100 transition-opacity">
+                <button onClick={() => insertText('**', '**')} className="p-1 hover:bg-notion-hover rounded text-notion-dim hover:text-notion-text"><Bold className="w-4 h-4" /></button>
+                <button onClick={() => insertText('*', '*')} className="p-1 hover:bg-notion-hover rounded text-notion-dim hover:text-notion-text"><Italic className="w-4 h-4" /></button>
+                <button onClick={() => insertText('### ')} className="p-1 hover:bg-notion-hover rounded text-notion-dim hover:text-notion-text"><Heading className="w-4 h-4" /></button>
+                <div className="w-px h-4 bg-notion-border" />
+                <button onClick={() => insertText('- [ ] ')} className="p-1 hover:bg-notion-hover rounded text-notion-dim hover:text-notion-text"><List className="w-4 h-4" /></button>
+                <button onClick={() => insertText('```\n', '\n```')} className="p-1 hover:bg-notion-hover rounded text-notion-dim hover:text-notion-text"><Code className="w-4 h-4" /></button>
+                <button onClick={() => insertText('@')} className="p-1 hover:bg-notion-hover rounded text-notion-dim hover:text-notion-text"><AtSign className="w-4 h-4" /></button>
+              </div>
+
+              <textarea
+                ref={textareaRef}
+                value={content}
+                onChange={(e) => setContent(e.target.value)}
+                onBlur={() => handleSave()}
+                onKeyDown={handleKeyDown}
+                onContextMenu={handleContextMenu}
+                className="w-full h-full resize-none focus:outline-none text-base md:text-lg leading-relaxed text-notion-text bg-transparent font-sans placeholder:text-notion-dim/50"
+                placeholder="Type '@' to mention, '/' for commands..."
+                style={{ minHeight: '60vh' }}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* PREVIEW PANE */}
+        {(viewMode === ViewMode.PREVIEW || viewMode === ViewMode.SPLIT) && (
+          <div className={`flex-1 h-full overflow-y-auto px-8 py-10 bg-white ${viewMode === ViewMode.SPLIT ? 'border-l border-notion-border hidden lg:block' : ''}`}>
+            <div className="max-w-[900px] mx-auto prose">
+              {viewMode === ViewMode.PREVIEW && <h1 className="mb-8">{title}</h1>}
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                rehypePlugins={[rehypeRaw]}
+                components={{
+                  // Render Mentions
+                  p: ({ children }) => {
+                    // This is a rough way to catch text nodes, in production use a remark plugin for mentions
+                    return <p>{children}</p>;
+                  },
+                  // We can attempt to style specific text patterns if we used a remark plugin,
+                  // but for "GoNote Lite" we simply style the raw text containing @User in the markdown render
+                  // by relying on the user to use bold/code or just plain text.
+                  // However, we can use a simple regex replacement in the `content` prop before passing to ReactMarkdown
+                  // OR simple text matching here if it was structured data.
+                  // For this demo, let's just make the preview clean.
+                }}
+              >
+                {/* Simple Client-side replacement for preview visualization of mentions */}
+                {content.replace(/@(\w+)/g, '<span class="mention-pill">@$1</span>')}
+              </ReactMarkdown>
+            </div>
+          </div>
+        )}
+
+        {/* COMMENTS SIDEBAR */}
+        {showComments && (
+          <div className="w-80 bg-notion-sidebar border-l border-notion-border flex flex-col h-full animate-in slide-in-from-right duration-200 shadow-xl z-30">
+            <div className="p-4 border-b border-notion-border flex justify-between items-center bg-white">
+              <span className="font-semibold text-sm">Comments ({comments.length})</span>
+              <button onClick={() => setShowComments(false)}><X className="w-4 h-4 text-notion-dim hover:text-notion-text" /></button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+              {comments.length === 0 && (
+                <div className="text-center text-notion-dim text-sm mt-10">
+                  <MessageSquare className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                  <p>No comments yet.</p>
+                  <p className="text-xs">Select text in editor to add one.</p>
+                </div>
+              )}
+              {comments.map(c => (
+                <div key={c.id} className="bg-white p-3 rounded-lg shadow-sm border border-notion-border">
+                  <div className="flex items-center gap-2 mb-1">
+                    <div className="w-5 h-5 rounded-full bg-blue-500 text-[10px] text-white flex items-center justify-center font-bold">
+                      {c.username[0]}
+                    </div>
+                    <span className="font-semibold text-xs">{c.username}</span>
+                    <span className="text-[10px] text-notion-dim ml-auto">{new Date(c.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                  </div>
+                  {c.quotedText && (
+                    <div className="mb-2 pl-2 border-l-2 border-blue-200 text-xs text-notion-dim italic truncate">
+                      "{c.quotedText}"
+                    </div>
+                  )}
+                  <p className="text-sm text-notion-text">{c.content}</p>
+                </div>
+              ))}
+            </div>
+
+            <div className="p-3 bg-white border-t border-notion-border">
+              {activeQuote && (
+                <div className="flex items-center justify-between bg-blue-50 px-2 py-1 rounded mb-2 text-xs text-blue-600">
+                  <span className="truncate max-w-[200px]">Replying to: "{activeQuote}"</span>
+                  <button onClick={() => setActiveQuote('')}><X className="w-3 h-3" /></button>
+                </div>
+              )}
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={newComment}
+                  onChange={(e) => setNewComment(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && submitComment()}
+                  placeholder={activeQuote ? "Add a reply..." : "Write a comment..."}
+                  className="flex-1 text-sm bg-notion-sidebar border border-notion-border rounded px-2 focus:outline-none focus:border-blue-300 transition-colors"
+                />
+                <button onClick={submitComment} className="p-2 bg-notion-text text-white rounded hover:bg-black transition-colors">
+                  <Send className="w-3 h-3" />
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Context Menu */}
+      {contextMenu && (
+        <div
+          ref={contextMenuRef}
+          className="fixed bg-white rounded-lg shadow-context border border-notion-border py-1 w-48 z-50 animate-fade-in"
+          style={{ top: contextMenu.y, left: contextMenu.x }}
+        >
+          {activeQuote && (
+            <button onClick={addComment} className="w-full text-left px-3 py-1.5 text-sm text-notion-text hover:bg-notion-hover flex items-center gap-2">
+              <MessageSquare className="w-3.5 h-3.5" /> Comment
+            </button>
+          )}
+          <div className="px-3 py-1.5 text-[10px] font-semibold text-notion-dim uppercase tracking-wider">Color</div>
+          <button onClick={() => applyColor('#D44C47')} className="w-full text-left px-3 py-1.5 text-sm text-notion-text hover:bg-notion-hover flex items-center gap-2">
+            <div className="w-4 h-4 rounded text-[#D44C47] font-bold text-center leading-4">A</div> Red
+          </button>
+          <button onClick={() => applyColor('#0B6E99')} className="w-full text-left px-3 py-1.5 text-sm text-notion-text hover:bg-notion-hover flex items-center gap-2">
+            <div className="w-4 h-4 rounded text-[#0B6E99] font-bold text-center leading-4">A</div> Blue
+          </button>
+          <button onClick={() => { insertText(`<span style="background:#FDECC8">`, `</span>`); setContextMenu(null); }} className="w-full text-left px-3 py-1.5 text-sm text-notion-text hover:bg-notion-hover flex items-center gap-2">
+            <Highlighter className="w-3.5 h-3.5" /> Highlight
+          </button>
+        </div>
+      )}
+
+      {/* Mention Dropdown */}
+      {mentionMenu && (
+        <div
+          className="fixed bg-white rounded-lg shadow-context border border-notion-border py-1 w-48 z-50 animate-fade-in mention-menu"
+          style={{ top: mentionMenu.y + 20, left: mentionMenu.x }}
+        >
+          <div className="px-3 py-1.5 text-[10px] font-semibold text-notion-dim uppercase tracking-wider">People</div>
+          {MOCK_USERS.map(user => (
+            <button key={user.id} onClick={() => insertMention(user.username)} className="w-full text-left px-3 py-1.5 text-sm text-notion-text hover:bg-notion-hover flex items-center gap-2">
+              <div className={`w-4 h-4 rounded-full ${user.avatarColor} text-white flex items-center justify-center text-[8px]`}>{user.username[0]}</div>
+              {user.username}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default Editor;
