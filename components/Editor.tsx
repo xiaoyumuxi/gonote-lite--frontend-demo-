@@ -7,9 +7,20 @@ import {
   Wand2, RefreshCw,
   Bold, Italic, List, Heading, Code, FileText, Trash2,
   Paperclip, X, Highlighter, LayoutPanelLeft, Eye, Plus,
-  Share, Globe, Link as LinkIcon, Lock, MessageSquare, Send, AtSign
+  Share, Globe, Link as LinkIcon, Lock, MessageSquare, Send, AtSign,
+  Download, Image as ImageIcon, File as FileIcon, FileText as FileHeading
 } from 'lucide-react';
 import { polishContent } from '../services/aiService';
+
+// Helper for file size
+const formatBytes = (bytes: number, decimals = 2) => {
+  if (!+bytes) return '0 Bytes';
+  const k = 1024;
+  const dm = decimals < 0 ? 0 : decimals;
+  const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
+};
 
 // Mock Users for Mentions
 const MOCK_USERS: User[] = [
@@ -208,6 +219,26 @@ const Editor: React.FC<EditorProps> = ({ note, notes, onUpdate, onNavigate, onDe
     }
   };
 
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      // Mock Upload
+      const newAttachment: Attachment = {
+        id: Date.now().toString(),
+        name: file.name,
+        type: file.type,
+        size: file.size,
+        data: URL.createObjectURL(file), // Mock URL
+        createdAt: Date.now()
+      };
+
+      const newAttachments = [...attachments, newAttachment];
+      setAttachments(newAttachments);
+      if (note) onUpdate({ ...note, attachments: newAttachments });
+      e.target.value = ''; // Reset input
+    }
+  };
+
   // --- Render ---
 
   if (!note) {
@@ -342,7 +373,67 @@ const Editor: React.FC<EditorProps> = ({ note, notes, onUpdate, onNavigate, onDe
                 <button onClick={() => insertText('- [ ] ')} className="p-1 hover:bg-notion-hover rounded text-notion-dim hover:text-notion-text"><List className="w-4 h-4" /></button>
                 <button onClick={() => insertText('```\n', '\n```')} className="p-1 hover:bg-notion-hover rounded text-notion-dim hover:text-notion-text"><Code className="w-4 h-4" /></button>
                 <button onClick={() => insertText('@')} className="p-1 hover:bg-notion-hover rounded text-notion-dim hover:text-notion-text"><AtSign className="w-4 h-4" /></button>
+                <div className="w-px h-4 bg-notion-border" />
+                <button onClick={() => attachmentInputRef.current?.click()} className="p-1 hover:bg-notion-hover rounded text-notion-dim hover:text-notion-text" title="Upload File"><Paperclip className="w-4 h-4" /></button>
+                <input
+                  type="file"
+                  ref={attachmentInputRef}
+                  className="hidden"
+                  onChange={handleFileUpload}
+                />
               </div>
+
+              {/* Attachments List (Enhanced) */}
+              {attachments.length > 0 && (
+                <div className="mb-6 grid grid-cols-1 sm:grid-cols-2 gap-3 animate-in fade-in slide-in-from-top-2 duration-300">
+                  {attachments.map(file => {
+                    const isImage = file.type.startsWith('image/');
+                    return (
+                      <div key={file.id} className="group flex items-center gap-3 p-3 bg-white border border-notion-border rounded-lg shadow-sm hover:shadow-md hover:border-notion-dim/30 transition-all">
+                        {/* Icon / Thumbnail */}
+                        <div className="w-10 h-10 shrink-0 bg-notion-sidebar rounded-lg flex items-center justify-center overflow-hidden border border-notion-border">
+                          {isImage ? (
+                            <img src={file.data} alt={file.name} className="w-full h-full object-cover" />
+                          ) : (
+                            <FileHeading className="w-5 h-5 text-notion-dim" />
+                          )}
+                        </div>
+
+                        {/* Info */}
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium text-sm text-notion-text truncate" title={file.name}>{file.name}</p>
+                          <p className="text-xs text-notion-dim flex items-center gap-1">
+                            {formatBytes(file.size)} • {new Date(file.createdAt).toLocaleDateString()}
+                          </p>
+                        </div>
+
+                        {/* Actions */}
+                        <div className="flex items-center gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+                          <a
+                            href={file.data}
+                            download={file.name}
+                            className="p-1.5 text-notion-dim hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                            title="Download"
+                          >
+                            <Download className="w-4 h-4" />
+                          </a>
+                          <button
+                            onClick={() => {
+                              const newAttachments = attachments.filter(a => a.id !== file.id);
+                              setAttachments(newAttachments);
+                              if (note) onUpdate({ ...note, attachments: newAttachments });
+                            }}
+                            className="p-1.5 text-notion-dim hover:text-red-500 hover:bg-red-50 rounded transition-colors"
+                            title="Delete"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
 
               <textarea
                 ref={textareaRef}
