@@ -93,9 +93,19 @@ const Editor: React.FC<EditorProps> = ({ note, notes, onUpdate, onNavigate, onDe
         setMentionMenu(null);
       }
     };
+
+    // Bind global navigation for Wiki Links (since we render them as raw HTML strings)
+    // In a real app with React Router, we would use a proper Link component in ReactMarkdown
+    (window as any).navigate = (noteId: string) => {
+      onNavigate(noteId);
+    };
+
     document.addEventListener('click', handleClick);
-    return () => document.removeEventListener('click', handleClick);
-  }, []);
+    return () => {
+      document.removeEventListener('click', handleClick);
+      delete (window as any).navigate;
+    };
+  }, [onNavigate]);
 
   const handleSave = (overrideContent?: string) => {
     if (!note) return;
@@ -472,8 +482,19 @@ const Editor: React.FC<EditorProps> = ({ note, notes, onUpdate, onNavigate, onDe
                   // For this demo, let's just make the preview clean.
                 }}
               >
-                {/* Simple Client-side replacement for preview visualization of mentions */}
-                {content.replace(/@(\w+)/g, '<span class="mention-pill">@$1</span>')}
+                {/* Simple Client-side replacement for preview visualization of mentions AND WikiLinks */}
+                {content
+                  .replace(/@(\w+)/g, '<span class="mention-pill">@$1</span>')
+                  .replace(/\[\[(.*?)\]\]/g, (match, p1) => {
+                    // Find if note exists
+                    const targetNote = notes.find(n => n.title === p1);
+                    if (targetNote) {
+                      return `<a href="#" onclick="event.preventDefault(); window.navigate('${targetNote.id}')" class="wiki-link text-notion-text border-b border-notion-text/30 hover:bg-notion-hover transition-colors font-medium">📄 ${p1}</a>`;
+                    } else {
+                      return `<span class="wiki-link-broken text-notion-dim/60 border-b border-dashed border-notion-dim/30 cursor-help" title="Page not created yet">📄 ${p1}</span>`;
+                    }
+                  })
+                }
               </ReactMarkdown>
             </div>
           </div>
