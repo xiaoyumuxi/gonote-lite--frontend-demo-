@@ -59,6 +59,42 @@ const Editor: React.FC<EditorProps> = ({ note, notes, onUpdate, onNavigate, onDe
   const [activeQuote, setActiveQuote] = useState('');
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // Scroll Sync Refs
+  const editContainerRef = useRef<HTMLDivElement>(null);
+  const previewContainerRef = useRef<HTMLDivElement>(null);
+  const isSyncingScroll = useRef(false);
+
+  const handleEditScroll = () => {
+    if (viewMode !== ViewMode.SPLIT) return;
+    if (isSyncingScroll.current) {
+      isSyncingScroll.current = false;
+      return;
+    }
+    const editNode = editContainerRef.current;
+    const previewNode = previewContainerRef.current;
+    if (editNode && previewNode) {
+      const percentage = editNode.scrollTop / (editNode.scrollHeight - editNode.clientHeight);
+      const targetScrollTop = percentage * (previewNode.scrollHeight - previewNode.clientHeight);
+      isSyncingScroll.current = true;
+      previewNode.scrollTop = targetScrollTop;
+    }
+  };
+
+  const handlePreviewScroll = () => {
+    if (viewMode !== ViewMode.SPLIT) return;
+    if (isSyncingScroll.current) {
+      isSyncingScroll.current = false;
+      return;
+    }
+    const editNode = editContainerRef.current;
+    const previewNode = previewContainerRef.current;
+    if (editNode && previewNode) {
+      const percentage = previewNode.scrollTop / (previewNode.scrollHeight - previewNode.clientHeight);
+      const targetScrollTop = percentage * (editNode.scrollHeight - editNode.clientHeight);
+      isSyncingScroll.current = true;
+      editNode.scrollTop = targetScrollTop;
+    }
+  };
   const attachmentInputRef = useRef<HTMLInputElement>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
 
@@ -434,7 +470,11 @@ const Editor: React.FC<EditorProps> = ({ note, notes, onUpdate, onNavigate, onDe
 
         {/* EDIT PANE */}
         {(viewMode === ViewMode.EDIT || viewMode === ViewMode.SPLIT) && (
-          <div className="flex-1 h-full overflow-y-auto px-6 md:px-12 py-8 scroll-smooth relative">
+          <div
+            ref={editContainerRef}
+            onScroll={handleEditScroll}
+            className="flex-1 h-full overflow-y-auto px-6 md:px-12 py-8 scroll-smooth relative"
+          >
             <div className="max-w-[800px] mx-auto min-h-[500px]">
               <input
                 type="text"
@@ -533,7 +573,11 @@ const Editor: React.FC<EditorProps> = ({ note, notes, onUpdate, onNavigate, onDe
 
         {/* PREVIEW PANE */}
         {(viewMode === ViewMode.PREVIEW || viewMode === ViewMode.SPLIT) && (
-          <div className={`flex-1 h-full overflow-y-auto px-8 py-10 bg-white ${viewMode === ViewMode.SPLIT ? 'border-l border-notion-border hidden lg:block' : ''}`}>
+          <div
+            ref={previewContainerRef}
+            onScroll={handlePreviewScroll}
+            className={`flex-1 h-full overflow-y-auto px-8 py-10 bg-white ${viewMode === ViewMode.SPLIT ? 'border-l border-notion-border hidden lg:block' : ''}`}
+          >
             <div className="max-w-[900px] mx-auto prose">
               {viewMode === ViewMode.PREVIEW && <h1 className="mb-8">{title}</h1>}
               <ReactMarkdown

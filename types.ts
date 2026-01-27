@@ -63,6 +63,31 @@ export enum ViewMode {
 
 export interface ArchitectureTip {
   title: string;
-  content: string;
-  code?: string;
+  description: string;
+  icon: string;
+  details: string[];
+}
+
+export type RecurrenceType = 'none' | 'daily' | 'weekly' | 'monthly' | 'yearly';
+export type CalendarType = 'solar' | 'lunar';
+
+export interface CalendarEvent {
+  id: string;
+  title: string;
+  date: number; // Timestamp
+  type: CalendarType;
+  recurrence: RecurrenceType;
+  notifyUsers: string[]; // User IDs
+  showCountdown: boolean;
+  description?: string;
+}
+
+export interface AppNotification {
+  id: string;
+  userId: string;
+  title: string;
+  message: string;
+  isRead: boolean;
+  createdAt: number;
+  type: 'reminder' | 'system' | 'mention';
 }
