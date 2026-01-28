@@ -7,13 +7,13 @@ import (
 )
 
 type User struct {
-	ID           string    `gorm:"primaryKey" json:"id"`
-	Username     string    `gorm:"uniqueIndex;not null" json:"username"`
-	PasswordHash string    `json:"-"`
-	AvatarColor  string    `json:"avatarColor"`
-	FamilyID     *string   `gorm:"index" json:"familyId"` // 家庭编号，可选
-	CreatedAt    time.Time `json:"createdAt"`
-	UpdatedAt    time.Time `json:"updatedAt"`
+	ID           string `gorm:"primaryKey" json:"id"`
+	Username     string `gorm:"uniqueIndex;not null" json:"username"`
+	PasswordHash string `json:"-"`
+	AvatarColor  string `json:"avatarColor"`
+	// FamilyID 已移除，改用 FamilyMember 多对多关联
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
 }
 
 type Note struct {

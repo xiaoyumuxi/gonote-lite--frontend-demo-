@@ -101,34 +101,39 @@ export const api = {
 
     // Family - 家庭相关
     createFamily: async (name: string) => {
-        return request<{ message: string; familyId: string; folder: any }>('/family/create', {
+        return request<{ message: string; familyId: string; family: any }>('/family/create', {
             method: 'POST',
             body: JSON.stringify({ name }),
         });
     },
 
     joinFamily: async (familyId: string) => {
-        return request<{ message: string; familyId: string }>('/family/join', {
+        return request<{ message: string; familyId: string; family: any }>('/family/join', {
             method: 'POST',
             body: JSON.stringify({ familyId }),
         });
     },
 
-    leaveFamily: async () => {
+    leaveFamily: async (familyId: string) => {
         return request<{ message: string }>('/family/leave', {
             method: 'POST',
+            body: JSON.stringify({ familyId }),
         });
     },
 
-    getFamilyMembers: async () => {
-        return request<{ familyId: string | null; members: any[] }>('/family/members');
+    getMyFamilies: async () => {
+        return request<any[]>('/family/list');
     },
 
-    getFamilyNotes: async () => {
-        return request<Note[]>('/family/notes');
+    getFamilyMembers: async (familyId: string) => {
+        return request<any[]>(`/family/${familyId}/members`);
     },
 
-    getFamilyEvents: async () => {
-        return request<CalendarEvent[]>('/family/events');
+    getFamilyNotes: async (familyId: string) => {
+        return request<Note[]>(`/family/${familyId}/notes`);
+    },
+
+    getFamilyEvents: async (familyId: string) => {
+        return request<CalendarEvent[]>(`/family/${familyId}/events`);
     },
 };

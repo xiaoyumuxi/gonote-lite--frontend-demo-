@@ -96,3 +96,18 @@ export interface AppNotification {
   createdAt: number;
   type: 'reminder' | 'system' | 'mention';
 }
+
+export interface Family {
+  id: string;
+  name: string;
+  creatorId: string;
+  joinedAt?: string;
+  role?: 'owner' | 'member';
+}
+
+export interface FamilyMember {
+  userId: string;
+  username: string;
+  role: 'owner' | 'member';
+  joinedAt: string;
+}

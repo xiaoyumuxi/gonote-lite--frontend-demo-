@@ -138,8 +138,9 @@ const App: React.FC = () => {
   const [events, setEvents] = useState<CalendarEvent[]>([]);
 
   // Family State - 家庭相关状态
-  const [familyId, setFamilyId] = useState<string | null>(null);
-  const [familyMembers, setFamilyMembers] = useState<any[]>([]);
+  const [families, setFamilies] = useState<any[]>([]); // 所有已加入的家庭
+  const [activeFamilyId, setActiveFamilyId] = useState<string | null>(null); // 当前选中的家庭
+  const [familyMembers, setFamilyMembers] = useState<any[]>([]); // 当前选中家庭的成员
   const [showFamilyModal, setShowFamilyModal] = useState(false);
   const [familyAction, setFamilyAction] = useState<'create' | 'join'>('create');
   const [familyInputValue, setFamilyInputValue] = useState('');
@@ -154,13 +155,42 @@ const App: React.FC = () => {
   const loadDataFromBackend = useCallback(async () => {
     setIsDataLoading(true);
     try {
-      const [notesData, eventsData, familyData] = await Promise.all([
+      const [notesData, eventsData, familiesData] = await Promise.all([
         api.getNotes(),
         api.getEvents(),
-        api.getFamilyMembers()
+        api.getMyFamilies()
       ]);
+
+      let allNotes = [...notesData];
+      let allEvents = [...eventsData];
+
+      // 加载所有家庭的笔记和事件
+      if (familiesData && familiesData.length > 0) {
+        const familyRequests = familiesData.map(async (f: any) => {
+          try {
+            const [fNotes, fEvents] = await Promise.all([
+              api.getFamilyNotes(f.id),
+              api.getFamilyEvents(f.id)
+            ]);
+            return {
+              notes: fNotes.map((n: any) => ({ ...n, familyId: f.id })),
+              events: fEvents.map((e: any) => ({ ...e, familyId: f.id }))
+            };
+          } catch (e) {
+            console.error(`Failed to load data for family ${f.id}`, e);
+            return { notes: [], events: [] };
+          }
+        });
+
+        const familiesResults = await Promise.all(familyRequests);
+        familiesResults.forEach(res => {
+          allNotes = [...allNotes, ...res.notes];
+          allEvents = [...allEvents, ...res.events];
+        });
+      }
+
       // 转换后端数据格式到前端格式
-      const formattedNotes = notesData.map((n: any) => ({
+      const formattedNotes = allNotes.map((n: any) => ({
         ...n,
         createdAt: new Date(n.createdAt).getTime(),
         updatedAt: new Date(n.updatedAt).getTime(),
@@ -174,7 +204,7 @@ const App: React.FC = () => {
       }));
       setNotes(formattedNotes);
 
-      const formattedEvents = eventsData.map((e: any) => ({
+      const formattedEvents = allEvents.map((e: any) => ({
         ...e,
         id: String(e.id),
         date: new Date(e.date).getTime(),
@@ -182,14 +212,23 @@ const App: React.FC = () => {
       }));
       setEvents(formattedEvents);
 
-      // 设置家庭信息
-      if (familyData.familyId) {
-        setFamilyId(familyData.familyId);
-        setFamilyMembers(familyData.members || []);
+      // 设置家庭列表
+      setFamilies(familiesData || []);
+
+      // 如果有家庭，默认选中第一个（管理用）
+      if (familiesData && familiesData.length > 0) {
+        const targetFamilyId = activeFamilyId || familiesData[0].id;
+        if (!activeFamilyId) setActiveFamilyId(targetFamilyId);
+
+        // 加载成员
+        api.getFamilyMembers(targetFamilyId)
+          .then(members => setFamilyMembers(members))
+          .catch(e => console.error('Failed to load family members:', e));
       } else {
-        setFamilyId(null);
+        setActiveFamilyId(null);
         setFamilyMembers([]);
       }
+
     } catch (error) {
       console.error('Failed to load data:', error);
       // 如果加载失败，使用 mock 数据作为降级方案
@@ -197,7 +236,7 @@ const App: React.FC = () => {
     } finally {
       setIsDataLoading(false);
     }
-  }, []);
+  }, [activeFamilyId]);
 
   const renderCalendar = () => {
     const year = currentDate.getFullYear();
@@ -206,8 +245,8 @@ const App: React.FC = () => {
     const firstDay = firstDayOfMonth(year, month);
     const dayCells = [];
 
-    // 是否为家庭日历模式
-    const isFamilyCalendar = activeFolderId === 'family-calendar';
+    // 是否为某个家庭的日历
+    const currentFamily = families.find(f => f.id === activeFolderId);
 
     // Empty cells
     for (let i = 0; i < firstDay; i++) {
@@ -223,12 +262,14 @@ const App: React.FC = () => {
         const eDate = new Date(e.date);
         const dateMatch = eDate.getDate() === d && eDate.getMonth() === month && eDate.getFullYear() === year;
         if (!dateMatch) return false;
-        // 家庭日历模式：只显示有 familyId 的事件
-        // 个人日历模式：显示没有 familyId 的事件 + 系统事件
-        if (isFamilyCalendar) {
-          return (e as any).familyId;
+
+        if (currentFamily) {
+          // 家庭日历模式：只显示该家庭的事件
+          return e.familyId === currentFamily.id;
         } else {
-          return !(e as any).familyId || (e as any).isSystem;
+          // 个人日历模式：显示没有 familyId 的事件 + 系统事件
+          // 注意：我们只在个人日历显示真正的个人事件和系统事件
+          return (!e.familyId || e.familyId === '') || (e as any).isSystem;
         }
       });
 
@@ -384,11 +425,16 @@ const App: React.FC = () => {
     localStorage.removeItem('gonote_token');
     localStorage.removeItem('gonote_user');
     setUser(null);
-    setFamilyId(null);
+    localStorage.removeItem('gonote_user');
+    setUser(null);
+    setFamilies([]);
+    setActiveFamilyId(null);
     setFamilyMembers([]);
   };
 
   // 家庭管理函数
+
+
   const handleCreateFamily = async () => {
     if (!familyInputValue.trim()) {
       setFamilyError('请输入家庭名称');
@@ -396,13 +442,12 @@ const App: React.FC = () => {
     }
     try {
       const result = await api.createFamily(familyInputValue.trim());
-      setFamilyId(result.familyId);
-      setFamilyMembers([user]);
+      await loadDataFromBackend(); // 重新加载列表
+      // 选中新创建的家庭
+      setActiveFamilyId(result.familyId);
       setShowFamilyModal(false);
       setFamilyInputValue('');
       setFamilyError(null);
-      // 重新加载数据以获取最新状态
-      await loadDataFromBackend();
     } catch (error: any) {
       setFamilyError(error.message || '创建家庭失败');
     }
@@ -415,22 +460,23 @@ const App: React.FC = () => {
     }
     try {
       const result = await api.joinFamily(familyInputValue.trim());
-      setFamilyId(result.familyId);
+      await loadDataFromBackend(); // 重新加载列表
+      // 选中新加入的家庭
+      setActiveFamilyId(result.familyId);
       setShowFamilyModal(false);
       setFamilyInputValue('');
       setFamilyError(null);
-      // 重新加载数据以获取家庭成员和共享笔记
-      await loadDataFromBackend();
     } catch (error: any) {
       setFamilyError(error.message || '加入家庭失败');
     }
   };
 
-  const handleLeaveFamily = async () => {
+  const handleLeaveFamily = async (targetFamilyId: string) => {
     try {
-      await api.leaveFamily();
-      setFamilyId(null);
-      setFamilyMembers([]);
+      await api.leaveFamily(targetFamilyId);
+      if (activeFamilyId === targetFamilyId) {
+        setActiveFamilyId(null);
+      }
       // 重新加载数据
       await loadDataFromBackend();
     } catch (error: any) {
@@ -439,29 +485,38 @@ const App: React.FC = () => {
   };
 
   // 动态生成文件夹列表
-  // 如果用户有家庭：前3个基础文件夹 + 动态家庭共享文件夹
-  // 如果用户没有家庭：显示完整的 INITIAL_FOLDERS（包含 mock 的家庭文件夹作为演示）
-  const displayFolders = familyId
-    ? [...INITIAL_FOLDERS.slice(0, 3), { id: 'family', name: '家庭共享', icon: '🏠' }]
-    : INITIAL_FOLDERS;
+  // 基础文件夹 + 所有已加入的家庭
+  const displayFolders = [
+    ...INITIAL_FOLDERS.slice(0, 3), // 个人笔记、最近、收藏
+    ...families.map(f => ({
+      id: f.id,
+      name: f.name,
+      icon: '🏠',
+      isFamily: true
+    }))
+  ];
+
+  // 如果没有家庭，且是演示环境，可以保留一个 Mock 家庭入口（可选，这里先只显示真实的）
 
   const handleCreateNote = async () => {
+    // 检查当前文件夹是否是家庭文件夹
+    const isFamilyFolder = families.some(f => f.id === activeFolderId);
+
     const newNote: Note = {
       id: Date.now().toString(),
       title: 'Untitled',
       content: '',
-      folderId: activeFolderId === 'family' ? '' : activeFolderId,
+      // 如果是家庭笔记，folderId 为空（不属于个人文件夹）；否则为当前 folderId
+      folderId: isFamilyFolder ? '' : activeFolderId,
       attachments: [],
       comments: [],
       shareConfig: { isPublic: false, publicPermission: 'read', collaborators: [] },
       createdAt: Date.now(),
       updatedAt: Date.now(),
+      ...(isFamilyFolder ? { familyId: activeFolderId } : {}),
     };
 
-    // 如果是家庭文件夹，添加 familyId
-    const noteWithFamily = activeFolderId === 'family' && familyId
-      ? { ...newNote, familyId }
-      : newNote;
+    const noteWithFamily = newNote; // 已经是完整对象
 
     // 先在前端显示，提供即时反馈
     setNotes([noteWithFamily, ...notes]);
@@ -475,7 +530,7 @@ const App: React.FC = () => {
         title: newNote.title,
         content: newNote.content,
         folderId: newNote.folderId,
-        ...(activeFolderId === 'family' && familyId ? { familyId } : {}),
+        ...(isFamilyFolder ? { familyId: activeFolderId } : {}),
       });
       // 更新前端状态使用后端返回的数据
       setNotes(prev => prev.map(n => n.id === newNote.id ? {
@@ -537,14 +592,15 @@ const App: React.FC = () => {
     const matchesSearch = n.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
       n.content.toLowerCase().includes(searchQuery.toLowerCase());
 
-    if (activeFolderId === 'family') {
-      // 真实家庭共享文件夹：显示有 familyId 的笔记
-      return n.familyId && matchesSearch;
+    const currentFamily = families.find(f => f.id === activeFolderId);
+    if (currentFamily) {
+      // 家庭文件夹：显示该 familyId 的笔记
+      return n.familyId === currentFamily.id && matchesSearch;
     } else if (activeFolderId === '4') {
-      // Mock 家庭文件夹：显示 folderId='4' 的笔记（用于演示）
+      // Mock 家庭文件夹
       return n.folderId === '4' && matchesSearch;
     } else {
-      // 普通文件夹：显示该文件夹的笔记
+      // 普通文件夹
       return n.folderId === activeFolderId && matchesSearch;
     }
   });
@@ -695,19 +751,7 @@ const App: React.FC = () => {
             <span className="truncate">我的日历</span>
           </div>
 
-          {/* 家庭日历入口 - 仅当用户有家庭时显示 */}
-          {familyId && (
-            <div
-              onClick={() => { setView('calendar'); setActiveFolderId('family-calendar'); setIsMobileMenuOpen(false); }}
-              className={`flex items-center gap-2 px-3 py-1.5 text-sm rounded-md cursor-pointer transition-colors group ${view === 'calendar' && activeFolderId === 'family-calendar' ? 'bg-notion-hover text-notion-text font-medium' : 'text-notion-dim hover:bg-notion-hover hover:text-notion-text'}`}
-            >
-              <Home className="w-4 h-4" />
-              <span className="truncate">家庭日历</span>
-              {familyMembers.length > 0 && (
-                <span className="text-xs text-notion-dim bg-notion-dim/10 px-1.5 py-0.5 rounded">{familyMembers.length}人</span>
-              )}
-            </div>
-          )}
+
 
           <div className="my-4 px-3 text-xs font-semibold text-notion-dim/60 uppercase tracking-wider">笔记文件夹</div>
 
@@ -725,29 +769,41 @@ const App: React.FC = () => {
             </div>
           ))}
 
-          {/* 家庭管理入口 */}
-          <div className="mt-4 px-3">
-            {familyId ? (
-              <div className="space-y-2">
-                <div className="text-xs text-notion-dim">
-                  家庭编号: <span className="font-mono bg-notion-dim/10 px-1 rounded">{familyId}</span>
-                </div>
-                <button
-                  onClick={handleLeaveFamily}
-                  className="text-xs text-red-500 hover:underline"
-                >
-                  退出家庭
-                </button>
-              </div>
-            ) : (
+          {/* 家庭管理入口 - 仅用于创建/加入新家庭 */}
+          <div className="mt-4 px-3 border-t border-notion-border pt-4">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-semibold text-notion-dim/60 uppercase tracking-wider">家庭列表</span>
               <button
                 onClick={() => { setShowFamilyModal(true); setFamilyError(null); setFamilyInputValue(''); }}
-                className="flex items-center gap-2 text-sm text-notion-dim hover:text-notion-text"
+                className="p-1 hover:bg-notion-hover rounded text-notion-dim hover:text-notion-text transition-colors"
+                title="创建或加入家庭"
               >
-                <Home className="w-4 h-4" />
-                <span>创建/加入家庭</span>
+                <Plus className="w-3 h-3" />
               </button>
-            )}
+            </div>
+
+            {/* 家庭列表及退出按钮 */}
+            <div className="space-y-1">
+              {families.map(f => (
+                <div key={f.id} className="group flex items-center justify-between px-2 py-1 hover:bg-notion-hover rounded text-sm text-notion-dim hover:text-notion-text">
+                  <div className="flex items-center gap-2 truncate">
+                    <Home className="w-3 h-3" />
+                    <span className="truncate">{f.name}</span>
+                  </div>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handleLeaveFamily(f.id); }}
+                    className="opacity-0 group-hover:opacity-100 p-1 hover:bg-red-50 text-notion-dim hover:text-red-500 rounded transition-all"
+                    title="退出该家庭"
+                  >
+                    <LogOut className="w-3 h-3" />
+                  </button>
+                </div>
+              ))}
+
+              {families.length === 0 && (
+                <div className="text-xs text-notion-dim/50 px-2 italic">尚未加入任何家庭</div>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -762,6 +818,11 @@ const App: React.FC = () => {
             `}>
             {/* ... (Existing Note List UI) ... */}
             <div className="p-4 border-b border-notion-border sticky top-0 bg-notion-sidebar z-10">
+              {/* Folder Title */}
+              <div className="flex items-center gap-2 mb-3 px-1 select-none">
+                <span className="text-lg">{displayFolders.find(f => f.id === activeFolderId)?.icon || '📂'}</span>
+                <span className="font-semibold text-sm text-notion-text truncate">{displayFolders.find(f => f.id === activeFolderId)?.name || 'Notes'}</span>
+              </div>
               <div className="relative group">
                 <Search className="absolute left-3 top-2.5 w-4 h-4 text-notion-dim group-hover:text-notion-text transition-colors" />
                 <input
@@ -775,19 +836,25 @@ const App: React.FC = () => {
             </div>
 
             <div className="flex-1 overflow-y-auto p-2 space-y-0.5">
-              {filteredNotes.map(note => (
-                <div
-                  key={note.id}
-                  className={`group p-3 rounded-lg cursor-pointer transition-all border border-transparent ${activeNoteId === note.id ? 'bg-white shadow-sm border-notion-border/50' : 'hover:bg-notion-hover'}`}
-                  onClick={() => handleNavigate(note.id)}
-                >
-                  <div className="flex items-center gap-2 mb-1">
-                    <FileText className={`w-4 h-4 ${activeNoteId === note.id ? 'text-notion-text' : 'text-notion-dim group-hover:text-notion-text'}`} />
-                    <h3 className={`text-sm font-medium truncate ${activeNoteId === note.id ? 'text-notion-text' : 'text-notion-text/80'}`}>{note.title || 'Untitled'}</h3>
-                  </div>
-                  <p className="text-xs text-notion-dim truncate pl-6 opacity-80">{note.content.substring(0, 50).replace(/[#*`]/g, '') || 'No content'}</p>
+              {filteredNotes.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-48 text-notion-dim text-center px-4 opacity-60">
+                  <p className="text-sm font-medium mb-1">No pages inside</p>
+                  <p className="text-xs">Create a new page below</p>
                 </div>
-              ))}
+              ) : (
+                filteredNotes.map(note => (
+                  <div
+                    key={note.id}
+                    className={`group p-3 rounded-lg cursor-pointer transition-all border border-transparent ${activeNoteId === note.id ? 'bg-white shadow-sm border-notion-border/50' : 'hover:bg-notion-hover'}`}
+                    onClick={() => handleNavigate(note.id)}
+                  >
+                    <div className="flex items-center gap-2 mb-1">
+                      <FileText className={`w-4 h-4 ${activeNoteId === note.id ? 'text-notion-text' : 'text-notion-dim group-hover:text-notion-text'}`} />
+                      <h3 className={`text-sm font-medium truncate ${activeNoteId === note.id ? 'text-notion-text' : 'text-notion-text/80'}`}>{note.title || 'Untitled'}</h3>
+                    </div>
+                    <p className="text-xs text-notion-dim truncate pl-6 opacity-80">{note.content.substring(0, 50).replace(/[#*`]/g, '') || 'No content'}</p>
+                  </div>
+                )))}
             </div>
 
             <div className="p-3 border-t border-notion-border bg-notion-sidebar sticky bottom-0">

@@ -1,9 +1,9 @@
 package db
 
 import (
-	"log"
 	"gonote/models"
-	
+	"log"
+
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
@@ -21,11 +21,13 @@ func Connect() {
 
 	// Auto-Migrate Models
 	err = DB.AutoMigrate(
-		&models.User{}, 
-		&models.Note{}, 
-		&models.Folder{}, 
+		&models.User{},
+		&models.Note{},
+		&models.Folder{},
 		&models.Event{},
 		&models.Collaborator{},
+		&models.Family{},
+		&models.FamilyMember{},
 	)
 	if err != nil {
 		log.Fatal("Failed to migrate database:", err)

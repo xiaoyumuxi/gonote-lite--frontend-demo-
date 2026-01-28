@@ -9,50 +9,29 @@ import (
 )
 
 // GetNotes - GET /api/notes?folderId=...
-// 返回用户自己的笔记 + 用户所属家庭的共享笔记
+// 返回用户自己的笔记
 func GetNotes(c *gin.Context) {
 	userId := c.GetString("userId")
 	folderId := c.Query("folderId")
 	search := c.Query("search")
-	familyOnly := c.Query("familyOnly") // 仅获取家庭共享笔记
-
-	// 获取用户信息，检查是否有家庭
-	var user models.User
-	db.DB.First(&user, "id = ?", userId)
 
 	var notes []models.Note
 
-	if familyOnly == "true" && user.FamilyID != nil {
-		// 仅返回家庭共享笔记
-		query := db.DB.Where("family_id = ?", *user.FamilyID)
-		if search != "" {
-			query = query.Where("title LIKE ? OR content LIKE ?", "%"+search+"%", "%"+search+"%")
-		}
-		query.Order("updated_at desc").Find(&notes)
-	} else {
-		// 返回用户自己的笔记
-		query := db.DB.Where("user_id = ? AND (family_id IS NULL OR family_id = '')", userId)
+	// 返回用户自己的笔记
+	// 家庭笔记通过 GetFamilyNotes 获取
+	query := db.DB.Where("user_id = ? AND (family_id IS NULL OR family_id = '')", userId)
 
-		if folderId != "" {
-			query = query.Where("folder_id = ?", folderId)
-		}
+	if folderId != "" {
+		query = query.Where("folder_id = ?", folderId)
+	}
 
-		if search != "" {
-			query = query.Where("title LIKE ? OR content LIKE ?", "%"+search+"%", "%"+search+"%")
-		}
+	if search != "" {
+		query = query.Where("title LIKE ? OR content LIKE ?", "%"+search+"%", "%"+search+"%")
+	}
 
-		query.Order("updated_at desc").Find(&notes)
-
-		// 如果用户有家庭，也查询家庭共享笔记并合并
-		if user.FamilyID != nil && folderId == "" && familyOnly != "false" {
-			var familyNotes []models.Note
-			familyQuery := db.DB.Where("family_id = ?", *user.FamilyID)
-			if search != "" {
-				familyQuery = familyQuery.Where("title LIKE ? OR content LIKE ?", "%"+search+"%", "%"+search+"%")
-			}
-			familyQuery.Order("updated_at desc").Find(&familyNotes)
-			notes = append(notes, familyNotes...)
-		}
+	if err := query.Order("updated_at desc").Find(&notes).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch notes"})
+		return
 	}
 
 	c.JSON(http.StatusOK, notes)

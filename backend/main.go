@@ -39,12 +39,14 @@ func main() {
 		api.POST("/auth/register/verify", handlers.RegisterVerify)
 
 		// 家庭相关
+		// 家庭相关
 		api.POST("/family/create", handlers.CreateFamily)
 		api.POST("/family/join", handlers.JoinFamily)
 		api.POST("/family/leave", handlers.LeaveFamily)
-		api.GET("/family/members", handlers.GetFamilyMembers)
-		api.GET("/family/notes", handlers.GetFamilyNotes)
-		api.GET("/family/events", handlers.GetFamilyEvents)
+		api.GET("/family/list", handlers.GetMyFamilies)           // 获取我加入的所有家庭
+		api.GET("/family/:id/members", handlers.GetFamilyMembers) // 获取指定家庭成员
+		api.GET("/family/:id/notes", handlers.GetFamilyNotes)     // 获取指定家庭笔记
+		api.GET("/family/:id/events", handlers.GetFamilyEvents)   // 获取指定家庭事件
 
 		// 事件相关
 		api.GET("/events", handlers.GetEvents)

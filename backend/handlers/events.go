@@ -9,44 +9,25 @@ import (
 )
 
 // GetEvents - GET /api/events?start=...&end=...
-// 返回用户自己的事件 + 家庭共享事件
+// 仅返回用户自己的事件 + 系统事件
+// 家庭事件请通过 GetFamilyEvents 获取
 func GetEvents(c *gin.Context) {
 	userId := c.GetString("userId")
 	start := c.Query("start")
 	end := c.Query("end")
-	familyOnly := c.Query("familyOnly") // 仅获取家庭事件
-
-	// 获取用户信息，检查是否有家庭
-	var user models.User
-	db.DB.First(&user, "id = ?", userId)
 
 	var events []models.Event
 
-	if familyOnly == "true" && user.FamilyID != nil {
-		// 仅返回家庭共享事件
-		query := db.DB.Where("family_id = ?", *user.FamilyID)
-		if start != "" && end != "" {
-			query = query.Where("date BETWEEN ? AND ?", start, end)
-		}
-		query.Find(&events)
-	} else {
-		// 返回用户自己的事件 + 系统事件
-		query := db.DB.Where("(user_id = ? AND (family_id IS NULL OR family_id = '')) OR is_system = ?", userId, true)
-		if start != "" && end != "" {
-			query = query.Where("date BETWEEN ? AND ?", start, end)
-		}
-		query.Find(&events)
+	// 返回用户自己的事件 + 系统事件
+	// 注意：家庭事件现在完全隔离
+	query := db.DB.Where("(user_id = ? AND (family_id IS NULL OR family_id = '')) OR is_system = ?", userId, true)
+	if start != "" && end != "" {
+		query = query.Where("date BETWEEN ? AND ?", start, end)
+	}
 
-		// 如果用户有家庭，也查询家庭共享事件
-		if user.FamilyID != nil && familyOnly != "false" {
-			var familyEvents []models.Event
-			familyQuery := db.DB.Where("family_id = ?", *user.FamilyID)
-			if start != "" && end != "" {
-				familyQuery = familyQuery.Where("date BETWEEN ? AND ?", start, end)
-			}
-			familyQuery.Find(&familyEvents)
-			events = append(events, familyEvents...)
-		}
+	if err := query.Find(&events).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch events"})
+		return
 	}
 
 	c.JSON(http.StatusOK, events)
