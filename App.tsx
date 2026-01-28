@@ -131,6 +131,12 @@ const App: React.FC = () => {
   // Calendar State
   const [view, setView] = useState<'notes' | 'calendar'>('notes');
   const [showAddEvent, setShowAddEvent] = useState(false);
+  const [newEventTitle, setNewEventTitle] = useState('');
+  const [newEventDateType, setNewEventDateType] = useState<'solar' | 'lunar'>('solar');
+  const [selectedDateForEvent, setSelectedDateForEvent] = useState<Date>(new Date());
+  const [newEventTime, setNewEventTime] = useState('09:00');
+  const [newEventRecurrence, setNewEventRecurrence] = useState<'none' | 'daily' | 'weekly' | 'monthly' | 'yearly'>('none');
+  const [newEventShowCountdown, setNewEventShowCountdown] = useState(true);
   const [notifications, setNotifications] = useState<AppNotification[]>([
     { id: 'n1', userId: 'u1', title: 'Dad\'s Birthday', message: 'Coming up in 3 days!', isRead: false, createdAt: Date.now(), type: 'reminder' }
   ]);
@@ -279,7 +285,7 @@ const App: React.FC = () => {
             <span className={`text-sm font-medium w-6 h-6 flex items-center justify-center rounded-full ${isToday ? 'bg-red-500 text-white' : 'text-notion-dim/80'}`}>{d}</span>
             <button
               className="opacity-0 group-hover:opacity-100 hover:bg-notion-hover p-0.5 rounded text-notion-dim transition-all"
-              onClick={() => setShowAddEvent(true)}
+              onClick={() => { setSelectedDateForEvent(new Date(year, month, d)); setShowAddEvent(true); }}
             >
               <Plus className="w-4 h-4" />
             </button>
@@ -290,7 +296,9 @@ const App: React.FC = () => {
               <div key={ev.id} className="flex items-center gap-1.5 px-1.5 py-1 bg-white hover:bg-notion-sidebar border border-notion-border/60 shadow-sm rounded-[3px] cursor-pointer transition-all">
                 <div className={`w-1.5 h-1.5 rounded-full ${ev.type === 'lunar' ? 'bg-purple-400' : 'bg-blue-400'}`} />
                 <span className="text-xs font-medium text-notion-text truncate flex-1">{ev.title}</span>
-                {ev.showCountdown && <span className="text-[10px] text-notion-dim tabular-nums">3d</span>}
+                {ev.showCountdown && <span className="text-[10px] text-notion-dim tabular-nums">
+                  {Math.ceil((new Date(ev.date).getTime() - Date.now()) / (86400000))}d
+                </span>}
               </div>
             ))}
           </div>
@@ -430,6 +438,39 @@ const App: React.FC = () => {
     setFamilies([]);
     setActiveFamilyId(null);
     setFamilyMembers([]);
+  };
+
+  const handleCreateEvent = async () => {
+    if (!newEventTitle) return;
+    try {
+      // Combine Date and Time
+      const finalDate = new Date(selectedDateForEvent);
+      if (newEventTime) {
+        const [hours, minutes] = newEventTime.split(':').map(Number);
+        finalDate.setHours(hours, minutes);
+      }
+
+      const payload: any = {
+        title: newEventTitle,
+        date: finalDate.toISOString(), // Backend expects ISO String
+        type: newEventDateType,
+        recurrence: newEventRecurrence,
+        showCountdown: newEventShowCountdown,
+      };
+
+      const currentFamily = families.find(f => f.id === activeFolderId);
+      if (currentFamily) {
+        payload.familyId = currentFamily.id;
+      }
+
+      await api.createEvent(payload);
+      await loadDataFromBackend();
+      setShowAddEvent(false);
+      setNewEventTitle('');
+    } catch (e) {
+      console.error(e);
+      alert('Failed to save event');
+    }
   };
 
   // 家庭管理函数
@@ -744,11 +785,11 @@ const App: React.FC = () => {
         {/* Navigation */}
         <div className="flex-1 overflow-y-auto py-2 px-2 space-y-0.5">
           <div
-            onClick={() => { setView('calendar'); setActiveFolderId('1'); setIsMobileMenuOpen(false); }}
-            className={`flex items-center gap-2 px-3 py-1.5 text-sm rounded-md cursor-pointer transition-colors group ${view === 'calendar' && activeFolderId !== 'family-calendar' ? 'bg-notion-hover text-notion-text font-medium' : 'text-notion-dim hover:bg-notion-hover hover:text-notion-text'}`}
+            onClick={() => { setView('calendar'); if (activeFolderId === '5') setActiveFolderId('1'); setIsMobileMenuOpen(false); }}
+            className={`flex items-center gap-2 px-3 py-1.5 text-sm rounded-md cursor-pointer transition-colors group ${view === 'calendar' ? 'bg-notion-hover text-notion-text font-medium' : 'text-notion-dim hover:bg-notion-hover hover:text-notion-text'}`}
           >
             <CalendarIcon className="w-4 h-4" />
-            <span className="truncate">我的日历</span>
+            <span className="truncate">日历</span>
           </div>
 
 
@@ -905,40 +946,45 @@ const App: React.FC = () => {
             </div>
 
             <div className="space-y-4">
+              <div className="bg-notion-hover/50 p-2 rounded text-sm text-center font-medium text-notion-dim">
+                For: {selectedDateForEvent.toLocaleDateString()} {families.find(f => f.id === activeFolderId) ? `(Family: ${families.find(f => f.id === activeFolderId).name})` : '(Personal)'}
+              </div>
               <div>
                 <label className="block text-xs font-semibold text-notion-dim uppercase tracking-wider mb-1">Title</label>
-                <input type="text" placeholder="e.g., Mom's Birthday" className="w-full border border-notion-border rounded p-2 focus:ring-2 focus:ring-blue-100 focus:border-blue-400 outline-none" />
+                <input value={newEventTitle} onChange={e => setNewEventTitle(e.target.value)} type="text" placeholder="Event Title" className="w-full border border-notion-border rounded p-2 focus:ring-2 focus:ring-blue-100 focus:border-blue-400 outline-none" />
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-semibold text-notion-dim uppercase tracking-wider mb-1">Date Type</label>
-                  <select className="w-full border border-notion-border rounded p-2 bg-white">
+                  <select value={newEventDateType} onChange={e => setNewEventDateType(e.target.value as any)} className="w-full border border-notion-border rounded p-2 bg-white">
                     <option value="solar">Solar (公历)</option>
                     <option value="lunar">Lunar (农历)</option>
                   </select>
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-notion-dim uppercase tracking-wider mb-1">Time</label>
-                  <input type="time" className="w-full border border-notion-border rounded p-2" />
+                  <input value={newEventTime} onChange={e => setNewEventTime(e.target.value)} type="time" className="w-full border border-notion-border rounded p-2" />
                 </div>
               </div>
 
               <div>
                 <label className="block text-xs font-semibold text-notion-dim uppercase tracking-wider mb-1">Recurrence</label>
-                <select className="w-full border border-notion-border rounded p-2 bg-white">
+                <select value={newEventRecurrence} onChange={e => setNewEventRecurrence(e.target.value as any)} className="w-full border border-notion-border rounded p-2 bg-white">
                   <option value="none">One-time</option>
-                  <option value="yearly">Yearly (e.g. Birthday)</option>
-                  <option value="monthly">Monthly (e.g. Bills)</option>
+                  <option value="daily">Daily</option>
+                  <option value="weekly">Weekly</option>
+                  <option value="monthly">Monthly</option>
+                  <option value="yearly">Yearly</option>
                 </select>
               </div>
 
               <div className="flex items-center justify-between p-3 bg-notion-sidebar rounded-lg">
                 <span className="text-sm font-medium">Show Countdown</span>
-                <input type="checkbox" className="w-4 h-4 text-blue-600 rounded" defaultChecked />
+                <input checked={newEventShowCountdown} onChange={e => setNewEventShowCountdown(e.target.checked)} type="checkbox" className="w-4 h-4 text-blue-600 rounded" />
               </div>
 
-              <button onClick={() => { alert('Event Saved!'); setShowAddEvent(false); }} className="w-full bg-notion-text text-white py-2.5 rounded-lg font-medium hover:bg-black transition-colors mt-2">
+              <button onClick={handleCreateEvent} className="w-full bg-notion-text text-white py-2.5 rounded-lg font-medium hover:bg-black transition-colors mt-2">
                 Save Event
               </button>
             </div>
