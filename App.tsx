@@ -134,6 +134,14 @@ const App: React.FC = () => {
   const [showNotifications, setShowNotifications] = useState(false);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
 
+  // Family State - 家庭相关状态
+  const [familyId, setFamilyId] = useState<string | null>(null);
+  const [familyMembers, setFamilyMembers] = useState<any[]>([]);
+  const [showFamilyModal, setShowFamilyModal] = useState(false);
+  const [familyAction, setFamilyAction] = useState<'create' | 'join'>('create');
+  const [familyInputValue, setFamilyInputValue] = useState('');
+  const [familyError, setFamilyError] = useState<string | null>(null);
+
   // Calendar Helpers
   const daysInMonth = (year: number, month: number) => new Date(year, month + 1, 0).getDate();
   const firstDayOfMonth = (year: number, month: number) => new Date(year, month, 1).getDay();
@@ -143,9 +151,10 @@ const App: React.FC = () => {
   const loadDataFromBackend = useCallback(async () => {
     setIsDataLoading(true);
     try {
-      const [notesData, eventsData] = await Promise.all([
+      const [notesData, eventsData, familyData] = await Promise.all([
         api.getNotes(),
-        api.getEvents()
+        api.getEvents(),
+        api.getFamilyMembers()
       ]);
       // 转换后端数据格式到前端格式
       const formattedNotes = notesData.map((n: any) => ({
@@ -169,6 +178,15 @@ const App: React.FC = () => {
         notifyUsers: e.notifyUsers ? JSON.parse(e.notifyUsers) : []
       }));
       setEvents(formattedEvents);
+
+      // 设置家庭信息
+      if (familyData.familyId) {
+        setFamilyId(familyData.familyId);
+        setFamilyMembers(familyData.members || []);
+      } else {
+        setFamilyId(null);
+        setFamilyMembers([]);
+      }
     } catch (error) {
       console.error('Failed to load data:', error);
       // 如果加载失败，使用 mock 数据作为降级方案
@@ -336,14 +354,71 @@ const App: React.FC = () => {
   const handleLogout = () => {
     localStorage.removeItem('gonote_user');
     setUser(null);
+    setFamilyId(null);
+    setFamilyMembers([]);
   };
+
+  // 家庭管理函数
+  const handleCreateFamily = async () => {
+    if (!familyInputValue.trim()) {
+      setFamilyError('请输入家庭名称');
+      return;
+    }
+    try {
+      const result = await api.createFamily(familyInputValue.trim());
+      setFamilyId(result.familyId);
+      setFamilyMembers([user]);
+      setShowFamilyModal(false);
+      setFamilyInputValue('');
+      setFamilyError(null);
+      // 重新加载数据以获取最新状态
+      await loadDataFromBackend();
+    } catch (error: any) {
+      setFamilyError(error.message || '创建家庭失败');
+    }
+  };
+
+  const handleJoinFamily = async () => {
+    if (!familyInputValue.trim()) {
+      setFamilyError('请输入家庭编号');
+      return;
+    }
+    try {
+      const result = await api.joinFamily(familyInputValue.trim());
+      setFamilyId(result.familyId);
+      setShowFamilyModal(false);
+      setFamilyInputValue('');
+      setFamilyError(null);
+      // 重新加载数据以获取家庭成员和共享笔记
+      await loadDataFromBackend();
+    } catch (error: any) {
+      setFamilyError(error.message || '加入家庭失败');
+    }
+  };
+
+  const handleLeaveFamily = async () => {
+    try {
+      await api.leaveFamily();
+      setFamilyId(null);
+      setFamilyMembers([]);
+      // 重新加载数据
+      await loadDataFromBackend();
+    } catch (error: any) {
+      console.error('退出家庭失败:', error);
+    }
+  };
+
+  // 动态生成文件夹列表，如果用户有家庭则包含家庭共享文件夹
+  const displayFolders = familyId
+    ? [...INITIAL_FOLDERS.slice(0, 3), { id: 'family', name: '🏠 家庭共享', icon: '🏠' }]
+    : INITIAL_FOLDERS.slice(0, 3);
 
   const handleCreateNote = async () => {
     const newNote: Note = {
       id: Date.now().toString(),
       title: 'Untitled',
       content: '',
-      folderId: activeFolderId,
+      folderId: activeFolderId === 'family' ? '' : activeFolderId,
       attachments: [],
       comments: [],
       shareConfig: { isPublic: false, publicPermission: 'read', collaborators: [] },
@@ -351,8 +426,13 @@ const App: React.FC = () => {
       updatedAt: Date.now(),
     };
 
+    // 如果是家庭文件夹，添加 familyId
+    const noteWithFamily = activeFolderId === 'family' && familyId
+      ? { ...newNote, familyId }
+      : newNote;
+
     // 先在前端显示，提供即时反馈
-    setNotes([newNote, ...notes]);
+    setNotes([noteWithFamily, ...notes]);
     setActiveNoteId(newNote.id);
     if (window.innerWidth < 768) setIsMobileMenuOpen(false);
 
@@ -363,10 +443,11 @@ const App: React.FC = () => {
         title: newNote.title,
         content: newNote.content,
         folderId: newNote.folderId,
+        ...(activeFolderId === 'family' && familyId ? { familyId } : {}),
       });
       // 更新前端状态使用后端返回的数据
       setNotes(prev => prev.map(n => n.id === newNote.id ? {
-        ...newNote,
+        ...noteWithFamily,
         ...savedNote,
         createdAt: new Date(savedNote.createdAt).getTime(),
         updatedAt: new Date(savedNote.updatedAt).getTime(),
@@ -419,11 +500,19 @@ const App: React.FC = () => {
     }
   };
 
-  const filteredNotes = notes.filter(n =>
-    n.folderId === activeFolderId &&
-    (n.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      n.content.toLowerCase().includes(searchQuery.toLowerCase()))
-  );
+  // 过滤笔记：如果选中家庭文件夹，显示家庭共享笔记；否则按普通文件夹过滤
+  const filteredNotes = notes.filter(n => {
+    const matchesSearch = n.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      n.content.toLowerCase().includes(searchQuery.toLowerCase());
+
+    if (activeFolderId === 'family') {
+      // 家庭共享文件夹：显示有 familyId 的笔记
+      return (n as any).familyId && matchesSearch;
+    } else {
+      // 普通文件夹：显示该文件夹且没有 familyId 的笔记
+      return n.folderId === activeFolderId && !(n as any).familyId && matchesSearch;
+    }
+  });
 
   const activeNote = notes.find(n => n.id === activeNoteId) || null;
 
@@ -542,9 +631,9 @@ const App: React.FC = () => {
             <span className="truncate">Calendar & Reminders</span>
           </div>
 
-          <div className="my-4 px-3 text-xs font-semibold text-notion-dim/60 uppercase tracking-wider">Note Folders</div>
+          <div className="my-4 px-3 text-xs font-semibold text-notion-dim/60 uppercase tracking-wider">笔记文件夹</div>
 
-          {folders.map(folder => (
+          {displayFolders.map(folder => (
             <div
               key={folder.id}
               className={`flex items-center gap-2 px-3 py-1.5 text-sm rounded-md cursor-pointer transition-colors group ${folder.id === activeFolderId && view === 'notes' ? 'bg-notion-hover text-notion-text font-medium' : 'text-notion-dim hover:bg-notion-hover hover:text-notion-text'}`}
@@ -552,8 +641,36 @@ const App: React.FC = () => {
             >
               <div className="flex items-center justify-center w-5 h-5 text-lg opacity-80 group-hover:opacity-100 transition-opacity">{folder.icon}</div>
               <span className="truncate flex-1">{folder.name}</span>
+              {folder.id === 'family' && familyMembers.length > 0 && (
+                <span className="text-xs text-notion-dim bg-notion-dim/10 px-1.5 py-0.5 rounded">{familyMembers.length}人</span>
+              )}
             </div>
           ))}
+
+          {/* 家庭管理入口 */}
+          <div className="mt-4 px-3">
+            {familyId ? (
+              <div className="space-y-2">
+                <div className="text-xs text-notion-dim">
+                  家庭编号: <span className="font-mono bg-notion-dim/10 px-1 rounded">{familyId}</span>
+                </div>
+                <button
+                  onClick={handleLeaveFamily}
+                  className="text-xs text-red-500 hover:underline"
+                >
+                  退出家庭
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => { setShowFamilyModal(true); setFamilyError(null); setFamilyInputValue(''); }}
+                className="flex items-center gap-2 text-sm text-notion-dim hover:text-notion-text"
+              >
+                <Home className="w-4 h-4" />
+                <span>创建/加入家庭</span>
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -678,6 +795,70 @@ const App: React.FC = () => {
 
               <button onClick={() => { alert('Event Saved!'); setShowAddEvent(false); }} className="w-full bg-notion-text text-white py-2.5 rounded-lg font-medium hover:bg-black transition-colors mt-2">
                 Save Event
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 家庭管理 Modal */}
+      {showFamilyModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md">
+            <div className="p-6 border-b border-notion-border">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-semibold">家庭共享</h3>
+                <button onClick={() => setShowFamilyModal(false)} className="p-1 hover:bg-notion-dim/10 rounded">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            <div className="p-6">
+              {/* 切换创建/加入 */}
+              <div className="flex gap-2 mb-4">
+                <button
+                  onClick={() => { setFamilyAction('create'); setFamilyError(null); }}
+                  className={`flex-1 py-2 text-sm font-medium rounded-lg transition-colors ${familyAction === 'create' ? 'bg-notion-text text-white' : 'bg-notion-dim/10 text-notion-dim hover:bg-notion-dim/20'}`}
+                >
+                  创建家庭
+                </button>
+                <button
+                  onClick={() => { setFamilyAction('join'); setFamilyError(null); }}
+                  className={`flex-1 py-2 text-sm font-medium rounded-lg transition-colors ${familyAction === 'join' ? 'bg-notion-text text-white' : 'bg-notion-dim/10 text-notion-dim hover:bg-notion-dim/20'}`}
+                >
+                  加入家庭
+                </button>
+              </div>
+
+              {/* 错误提示 */}
+              {familyError && (
+                <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-600 text-sm">
+                  {familyError}
+                </div>
+              )}
+
+              {/* 输入框 */}
+              <input
+                type="text"
+                value={familyInputValue}
+                onChange={e => setFamilyInputValue(e.target.value)}
+                placeholder={familyAction === 'create' ? '输入家庭名称，如：张家' : '输入家庭编号，如：family-xxxxxx'}
+                className="w-full px-4 py-3 bg-notion-sidebar border border-notion-border rounded-lg focus:outline-none focus:ring-2 focus:ring-notion-dim/20 transition-all"
+              />
+
+              <p className="mt-2 text-xs text-notion-dim">
+                {familyAction === 'create'
+                  ? '创建后，你可以邀请家人通过家庭编号加入。'
+                  : '请向家庭创建者索取家庭编号。'}
+              </p>
+
+              {/* 操作按钮 */}
+              <button
+                onClick={familyAction === 'create' ? handleCreateFamily : handleJoinFamily}
+                className="w-full mt-4 bg-notion-text text-white py-2.5 rounded-lg font-medium hover:bg-black transition-colors"
+              >
+                {familyAction === 'create' ? '创建家庭' : '加入家庭'}
               </button>
             </div>
           </div>

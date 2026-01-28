@@ -35,6 +35,7 @@ export interface Note {
   title: string;
   content: string;
   folderId: string;
+  familyId?: string; // 家庭共享笔记的家庭编号
   attachments?: Attachment[];
   comments?: Comment[];
   shareConfig?: ShareConfig;
@@ -46,6 +47,7 @@ export interface Folder {
   id: string;
   name: string;
   icon?: string;
+  familyId?: string; // 家庭共享文件夹
 }
 
 export interface User {
@@ -53,6 +55,7 @@ export interface User {
   username: string;
   token: string;
   avatarColor?: string;
+  familyId?: string; // 用户所属的家庭编号
 }
 
 export enum ViewMode {

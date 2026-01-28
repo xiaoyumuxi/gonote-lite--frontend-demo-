@@ -1,9 +1,9 @@
 package main
 
 import (
-	"log"
 	"gonote/db"
 	"gonote/handlers"
+	"log"
 
 	"github.com/gin-gonic/gin"
 )
@@ -11,7 +11,7 @@ import (
 func main() {
 	// Initialize DB
 	db.Connect()
-	
+
 	r := gin.Default()
 
 	// CORS Middleware
@@ -27,9 +27,10 @@ func main() {
 	})
 
 	// Simple Mock Auth Middleware
+	// TODO: 生产环境应解析 JWT Token
 	r.Use(func(c *gin.Context) {
-		// In real world, parse JWT. For now, assume User ID u1 if no auth
-		c.Set("userId", "u1") 
+		// 暂时使用固定用户 ID 进行测试
+		c.Set("userId", "u-testfamily")
 		c.Next()
 	})
 
@@ -37,11 +38,18 @@ func main() {
 	{
 		api.POST("/auth/login", handlers.Login)
 		api.POST("/auth/register", handlers.Register)
-		
+
+		// 家庭相关
+		api.POST("/family/create", handlers.CreateFamily)
+		api.POST("/family/join", handlers.JoinFamily)
+		api.POST("/family/leave", handlers.LeaveFamily)
+		api.GET("/family/members", handlers.GetFamilyMembers)
+		api.GET("/family/notes", handlers.GetFamilyNotes)
+
 		api.GET("/events", handlers.GetEvents)
 		api.POST("/events", handlers.CreateEvent)
 		api.DELETE("/events/:id", handlers.DeleteEvent)
-		
+
 		api.GET("/notes", handlers.GetNotes)
 		api.POST("/notes", handlers.CreateNote)
 		api.PUT("/notes/:id", handlers.UpdateNote)

@@ -80,4 +80,34 @@ export const api = {
             method: 'DELETE',
         });
     },
+
+    // Family - 家庭相关
+    createFamily: async (name: string) => {
+        return request<{ message: string; familyId: string; folder: any }>('/family/create', {
+            method: 'POST',
+            body: JSON.stringify({ name }),
+        });
+    },
+
+    joinFamily: async (familyId: string) => {
+        return request<{ message: string; familyId: string }>('/family/join', {
+            method: 'POST',
+            body: JSON.stringify({ familyId }),
+        });
+    },
+
+    leaveFamily: async () => {
+        return request<{ message: string }>('/family/leave', {
+            method: 'POST',
+        });
+    },
+
+    getFamilyMembers: async () => {
+        return request<{ familyId: string | null; members: any[] }>('/family/members');
+    },
+
+    getFamilyNotes: async () => {
+        return request<Note[]>('/family/notes');
+    },
 };
+
