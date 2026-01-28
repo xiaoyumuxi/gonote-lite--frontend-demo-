@@ -3,6 +3,7 @@ package main
 import (
 	"gonote/db"
 	"gonote/handlers"
+	"gonote/middleware"
 	"log"
 
 	"github.com/gin-gonic/gin"
@@ -26,18 +27,16 @@ func main() {
 		c.Next()
 	})
 
-	// Simple Mock Auth Middleware
-	// TODO: 生产环境应解析 JWT Token
-	r.Use(func(c *gin.Context) {
-		// 暂时使用固定用户 ID 进行测试
-		c.Set("userId", "u-testfamily")
-		c.Next()
-	})
+	// JWT 认证中间件
+	r.Use(middleware.JWTAuthMiddleware())
 
 	api := r.Group("/api")
 	{
+		// 认证相关（无需 Token）
 		api.POST("/auth/login", handlers.Login)
 		api.POST("/auth/register", handlers.Register)
+		api.POST("/auth/register/request", handlers.RegisterRequest)
+		api.POST("/auth/register/verify", handlers.RegisterVerify)
 
 		// 家庭相关
 		api.POST("/family/create", handlers.CreateFamily)
@@ -47,10 +46,12 @@ func main() {
 		api.GET("/family/notes", handlers.GetFamilyNotes)
 		api.GET("/family/events", handlers.GetFamilyEvents)
 
+		// 事件相关
 		api.GET("/events", handlers.GetEvents)
 		api.POST("/events", handlers.CreateEvent)
 		api.DELETE("/events/:id", handlers.DeleteEvent)
 
+		// 笔记相关
 		api.GET("/notes", handlers.GetNotes)
 		api.POST("/notes", handlers.CreateNote)
 		api.PUT("/notes/:id", handlers.UpdateNote)

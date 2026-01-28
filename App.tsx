@@ -124,6 +124,9 @@ const App: React.FC = () => {
   const [password, setPassword] = useState('');
   const [isRegistering, setIsRegistering] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  // 验证码注册 State
+  const [verificationCode, setVerificationCode] = useState('');
+  const [awaitingCode, setAwaitingCode] = useState(false);
 
   // Calendar State
   const [view, setView] = useState<'notes' | 'calendar'>('notes');
@@ -318,10 +321,10 @@ const App: React.FC = () => {
 
     try {
       const data = await api.login(username, password);
-      if (data.user) {
+      if (data.user && data.token) {
+        localStorage.setItem('gonote_token', data.token);
         localStorage.setItem('gonote_user', JSON.stringify(data.user));
         setUser(data.user);
-        // 登录成功后加载数据
         await loadDataFromBackend();
       }
     } catch (error: any) {
@@ -350,12 +353,26 @@ const App: React.FC = () => {
     }
 
     try {
-      const data = await api.register(username, password);
-      if (data.user) {
-        localStorage.setItem('gonote_user', JSON.stringify(data.user));
-        setUser(data.user);
-        // 注册成功后加载数据（新用户一般没有数据）
-        await loadDataFromBackend();
+      if (!awaitingCode) {
+        // 第一步：请求验证码
+        await api.registerRequest(username, password);
+        setAwaitingCode(true);
+        setAuthError(null);
+      } else {
+        // 第二步：验证验证码
+        if (!verificationCode || verificationCode.length !== 6) {
+          setAuthError('请输入6位验证码');
+          return;
+        }
+        const data = await api.registerVerify(username, verificationCode);
+        if (data.user && data.token) {
+          localStorage.setItem('gonote_token', data.token);
+          localStorage.setItem('gonote_user', JSON.stringify(data.user));
+          setUser(data.user);
+          setAwaitingCode(false);
+          setVerificationCode('');
+          await loadDataFromBackend();
+        }
       }
     } catch (error: any) {
       console.error('Register failed:', error);
@@ -364,6 +381,7 @@ const App: React.FC = () => {
   };
 
   const handleLogout = () => {
+    localStorage.removeItem('gonote_token');
     localStorage.removeItem('gonote_user');
     setUser(null);
     setFamilyId(null);
@@ -545,7 +563,11 @@ const App: React.FC = () => {
               <FileText className="w-8 h-8" />
             </div>
             <h1 className="text-3xl font-bold text-notion-text tracking-tight">GoNote</h1>
-            <p className="text-notion-dim mt-2">{isRegistering ? 'Create your account' : 'Sign in to continue'}</p>
+            <p className="text-notion-dim mt-2">
+              {isRegistering
+                ? (awaitingCode ? '输入管理员提供的验证码' : '创建你的账号')
+                : '登录以继续'}
+            </p>
           </div>
 
           <form onSubmit={isRegistering ? handleRegister : handleLogin} className="space-y-4">
@@ -555,33 +577,58 @@ const App: React.FC = () => {
                 {authError}
               </div>
             )}
+
+            {/* 等待验证码时的提示 */}
+            {isRegistering && awaitingCode && (
+              <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-blue-700 text-sm">
+                ✅ 验证码已发送到后台控制台，请联系管理员获取
+              </div>
+            )}
+
+            {/* 用户名/密码输入（等待验证码时禁用） */}
             <input
               type="text"
               required
+              disabled={awaitingCode}
               value={username}
               onChange={e => { setUsername(e.target.value); setAuthError(null); }}
-              className="w-full px-4 py-3 bg-notion-sidebar border border-notion-border rounded-lg focus:outline-none focus:ring-2 focus:ring-notion-dim/20 transition-all placeholder:text-notion-dim/50"
+              className={`w-full px-4 py-3 bg-notion-sidebar border border-notion-border rounded-lg focus:outline-none focus:ring-2 focus:ring-notion-dim/20 transition-all placeholder:text-notion-dim/50 ${awaitingCode ? 'opacity-50 cursor-not-allowed' : ''}`}
               placeholder={isRegistering ? "用户名 (至少3个字符)" : "用户名"}
             />
             <input
               type="password"
-              required
+              required={!awaitingCode}
+              disabled={awaitingCode}
               value={password}
               onChange={e => { setPassword(e.target.value); setAuthError(null); }}
-              className="w-full px-4 py-3 bg-notion-sidebar border border-notion-border rounded-lg focus:outline-none focus:ring-2 focus:ring-notion-dim/20 transition-all placeholder:text-notion-dim/50"
+              className={`w-full px-4 py-3 bg-notion-sidebar border border-notion-border rounded-lg focus:outline-none focus:ring-2 focus:ring-notion-dim/20 transition-all placeholder:text-notion-dim/50 ${awaitingCode ? 'opacity-50 cursor-not-allowed' : ''}`}
               placeholder={isRegistering ? "密码 (至少6个字符)" : "密码"}
             />
+
+            {/* 验证码输入（仅在等待验证码时显示） */}
+            {isRegistering && awaitingCode && (
+              <input
+                type="text"
+                required
+                maxLength={6}
+                value={verificationCode}
+                onChange={e => { setVerificationCode(e.target.value.replace(/\D/g, '')); setAuthError(null); }}
+                className="w-full px-4 py-3 bg-notion-sidebar border border-notion-border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400/30 transition-all placeholder:text-notion-dim/50 text-center text-2xl tracking-[0.5em] font-mono"
+                placeholder="验证码"
+              />
+            )}
+
             <button
               type="submit"
               className="w-full bg-notion-text hover:bg-black text-white font-medium py-3 rounded-lg transition-all shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
             >
-              {isRegistering ? '注册' : '登录'}
+              {isRegistering ? (awaitingCode ? '确认注册' : '获取验证码') : '登录'}
             </button>
           </form>
 
           <div className="mt-6 text-center">
             <button
-              onClick={() => { setIsRegistering(!isRegistering); setAuthError(null); }}
+              onClick={() => { setIsRegistering(!isRegistering); setAuthError(null); setAwaitingCode(false); setVerificationCode(''); }}
               className="text-sm text-notion-dim hover:text-notion-text hover:underline transition-colors"
             >
               {isRegistering ? '已有账号？点击登录' : '没有账号？点击注册'}
