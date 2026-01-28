@@ -1,30 +1,52 @@
 package handlers
 
 import (
-	"net/http"
 	"gonote/db"
 	"gonote/models"
-	
+	"net/http"
+
 	"github.com/gin-gonic/gin"
 )
 
 // GetEvents - GET /api/events?start=...&end=...
+// 返回用户自己的事件 + 家庭共享事件
 func GetEvents(c *gin.Context) {
-	userId := c.GetString("userId") // Provided by Auth Middleware
+	userId := c.GetString("userId")
 	start := c.Query("start")
 	end := c.Query("end")
+	familyOnly := c.Query("familyOnly") // 仅获取家庭事件
+
+	// 获取用户信息，检查是否有家庭
+	var user models.User
+	db.DB.First(&user, "id = ?", userId)
 
 	var events []models.Event
-	query := db.DB.Where("(user_id = ? OR is_system = ?)", userId, true)
 
-	if start != "" && end != "" {
-		// Filter by date range (simplistic for now)
-		query = query.Where("date BETWEEN ? AND ?", start, end)
-	}
+	if familyOnly == "true" && user.FamilyID != nil {
+		// 仅返回家庭共享事件
+		query := db.DB.Where("family_id = ?", *user.FamilyID)
+		if start != "" && end != "" {
+			query = query.Where("date BETWEEN ? AND ?", start, end)
+		}
+		query.Find(&events)
+	} else {
+		// 返回用户自己的事件 + 系统事件
+		query := db.DB.Where("(user_id = ? AND (family_id IS NULL OR family_id = '')) OR is_system = ?", userId, true)
+		if start != "" && end != "" {
+			query = query.Where("date BETWEEN ? AND ?", start, end)
+		}
+		query.Find(&events)
 
-	if err := query.Find(&events).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch events"})
-		return
+		// 如果用户有家庭，也查询家庭共享事件
+		if user.FamilyID != nil && familyOnly != "false" {
+			var familyEvents []models.Event
+			familyQuery := db.DB.Where("family_id = ?", *user.FamilyID)
+			if start != "" && end != "" {
+				familyQuery = familyQuery.Where("date BETWEEN ? AND ?", start, end)
+			}
+			familyQuery.Find(&familyEvents)
+			events = append(events, familyEvents...)
+		}
 	}
 
 	c.JSON(http.StatusOK, events)
@@ -40,7 +62,7 @@ func CreateEvent(c *gin.Context) {
 
 	// Assign current user
 	event.UserID = c.GetString("userId")
-	
+
 	if err := db.DB.Create(&event).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create event"})
 		return

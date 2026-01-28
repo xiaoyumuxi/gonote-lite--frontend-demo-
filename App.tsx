@@ -203,6 +203,9 @@ const App: React.FC = () => {
     const firstDay = firstDayOfMonth(year, month);
     const dayCells = [];
 
+    // 是否为家庭日历模式
+    const isFamilyCalendar = activeFolderId === 'family-calendar';
+
     // Empty cells
     for (let i = 0; i < firstDay; i++) {
       dayCells.push(<div key={`empty-${i}`} className="min-h-[120px] bg-notion-sidebar/10 border-b border-r border-notion-border/50"></div>);
@@ -212,9 +215,18 @@ const App: React.FC = () => {
     for (let d = 1; d <= days; d++) {
       const dateTs = new Date(year, month, d).getTime();
       const isToday = new Date().getDate() === d && new Date().getMonth() === month && new Date().getFullYear() === year;
+      // 根据日历模式过滤事件
       const dayEvents = events.filter(e => {
         const eDate = new Date(e.date);
-        return eDate.getDate() === d && eDate.getMonth() === month && eDate.getFullYear() === year;
+        const dateMatch = eDate.getDate() === d && eDate.getMonth() === month && eDate.getFullYear() === year;
+        if (!dateMatch) return false;
+        // 家庭日历模式：只显示有 familyId 的事件
+        // 个人日历模式：显示没有 familyId 的事件 + 系统事件
+        if (isFamilyCalendar) {
+          return (e as any).familyId;
+        } else {
+          return !(e as any).familyId || (e as any).isSystem;
+        }
       });
 
       dayCells.push(
@@ -408,10 +420,12 @@ const App: React.FC = () => {
     }
   };
 
-  // 动态生成文件夹列表，如果用户有家庭则包含家庭共享文件夹
+  // 动态生成文件夹列表
+  // 如果用户有家庭：前3个基础文件夹 + 动态家庭共享文件夹
+  // 如果用户没有家庭：显示完整的 INITIAL_FOLDERS（包含 mock 的家庭文件夹作为演示）
   const displayFolders = familyId
-    ? [...INITIAL_FOLDERS.slice(0, 3), { id: 'family', name: '🏠 家庭共享', icon: '🏠' }]
-    : INITIAL_FOLDERS.slice(0, 3);
+    ? [...INITIAL_FOLDERS.slice(0, 3), { id: 'family', name: '家庭共享', icon: '🏠' }]
+    : INITIAL_FOLDERS;
 
   const handleCreateNote = async () => {
     const newNote: Note = {
@@ -500,17 +514,20 @@ const App: React.FC = () => {
     }
   };
 
-  // 过滤笔记：如果选中家庭文件夹，显示家庭共享笔记；否则按普通文件夹过滤
+  // 过滤笔记
   const filteredNotes = notes.filter(n => {
     const matchesSearch = n.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
       n.content.toLowerCase().includes(searchQuery.toLowerCase());
 
     if (activeFolderId === 'family') {
-      // 家庭共享文件夹：显示有 familyId 的笔记
-      return (n as any).familyId && matchesSearch;
+      // 真实家庭共享文件夹：显示有 familyId 的笔记
+      return n.familyId && matchesSearch;
+    } else if (activeFolderId === '4') {
+      // Mock 家庭文件夹：显示 folderId='4' 的笔记（用于演示）
+      return n.folderId === '4' && matchesSearch;
     } else {
-      // 普通文件夹：显示该文件夹且没有 familyId 的笔记
-      return n.folderId === activeFolderId && !(n as any).familyId && matchesSearch;
+      // 普通文件夹：显示该文件夹的笔记
+      return n.folderId === activeFolderId && matchesSearch;
     }
   });
 
@@ -624,12 +641,26 @@ const App: React.FC = () => {
         {/* Navigation */}
         <div className="flex-1 overflow-y-auto py-2 px-2 space-y-0.5">
           <div
-            onClick={() => { setView('calendar'); setIsMobileMenuOpen(false); }}
-            className={`flex items-center gap-2 px-3 py-1.5 text-sm rounded-md cursor-pointer transition-colors group ${view === 'calendar' ? 'bg-notion-hover text-notion-text font-medium' : 'text-notion-dim hover:bg-notion-hover hover:text-notion-text'}`}
+            onClick={() => { setView('calendar'); setActiveFolderId('1'); setIsMobileMenuOpen(false); }}
+            className={`flex items-center gap-2 px-3 py-1.5 text-sm rounded-md cursor-pointer transition-colors group ${view === 'calendar' && activeFolderId !== 'family-calendar' ? 'bg-notion-hover text-notion-text font-medium' : 'text-notion-dim hover:bg-notion-hover hover:text-notion-text'}`}
           >
             <CalendarIcon className="w-4 h-4" />
-            <span className="truncate">Calendar & Reminders</span>
+            <span className="truncate">我的日历</span>
           </div>
+
+          {/* 家庭日历入口 - 仅当用户有家庭时显示 */}
+          {familyId && (
+            <div
+              onClick={() => { setView('calendar'); setActiveFolderId('family-calendar'); setIsMobileMenuOpen(false); }}
+              className={`flex items-center gap-2 px-3 py-1.5 text-sm rounded-md cursor-pointer transition-colors group ${view === 'calendar' && activeFolderId === 'family-calendar' ? 'bg-notion-hover text-notion-text font-medium' : 'text-notion-dim hover:bg-notion-hover hover:text-notion-text'}`}
+            >
+              <Home className="w-4 h-4" />
+              <span className="truncate">家庭日历</span>
+              {familyMembers.length > 0 && (
+                <span className="text-xs text-notion-dim bg-notion-dim/10 px-1.5 py-0.5 rounded">{familyMembers.length}人</span>
+              )}
+            </div>
+          )}
 
           <div className="my-4 px-3 text-xs font-semibold text-notion-dim/60 uppercase tracking-wider">笔记文件夹</div>
 

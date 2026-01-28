@@ -45,6 +45,7 @@ func main() {
 		api.POST("/family/leave", handlers.LeaveFamily)
 		api.GET("/family/members", handlers.GetFamilyMembers)
 		api.GET("/family/notes", handlers.GetFamilyNotes)
+		api.GET("/family/events", handlers.GetFamilyEvents)
 
 		api.GET("/events", handlers.GetEvents)
 		api.POST("/events", handlers.CreateEvent)

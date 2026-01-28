@@ -83,6 +83,8 @@ export interface CalendarEvent {
   notifyUsers: string[]; // User IDs
   showCountdown: boolean;
   description?: string;
+  familyId?: string; // 家庭共享事件
+  isSystem?: boolean; // 系统事件
 }
 
 export interface AppNotification {

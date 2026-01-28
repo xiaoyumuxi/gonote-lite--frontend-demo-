@@ -109,5 +109,9 @@ export const api = {
     getFamilyNotes: async () => {
         return request<Note[]>('/family/notes');
     },
+
+    getFamilyEvents: async () => {
+        return request<CalendarEvent[]>('/family/events');
+    },
 };
 

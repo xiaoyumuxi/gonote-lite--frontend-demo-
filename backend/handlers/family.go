@@ -180,3 +180,24 @@ func GetFamilyNotes(c *gin.Context) {
 
 	c.JSON(http.StatusOK, notes)
 }
+
+// GetFamilyEvents - 获取家庭共享事件
+func GetFamilyEvents(c *gin.Context) {
+	userId := c.GetString("userId")
+
+	var user models.User
+	if err := db.DB.First(&user, "id = ?", userId).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "用户不存在"})
+		return
+	}
+
+	if user.FamilyID == nil {
+		c.JSON(http.StatusOK, []models.Event{})
+		return
+	}
+
+	var events []models.Event
+	db.DB.Where("family_id = ?", *user.FamilyID).Order("date asc").Find(&events)
+
+	c.JSON(http.StatusOK, events)
+}
