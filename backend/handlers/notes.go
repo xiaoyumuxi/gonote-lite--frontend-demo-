@@ -29,7 +29,7 @@ func GetNotes(c *gin.Context) {
 		query = query.Where("title LIKE ? OR content LIKE ?", "%"+search+"%", "%"+search+"%")
 	}
 
-	if err := query.Order("updated_at desc").Find(&notes).Error; err != nil {
+	if err := query.Preload("Attachments").Preload("Comments").Preload("Collaborators").Order("updated_at desc").Find(&notes).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch notes"})
 		return
 	}
@@ -85,7 +85,22 @@ func UpdateNote(c *gin.Context) {
 	note.PublicPermission = updateData.PublicPermission
 	note.FamilyID = updateData.FamilyID
 
+	// Update Collaborators (if provided)
+	if len(updateData.Collaborators) > 0 {
+		var collaborators []models.Collaborator
+		for _, c := range updateData.Collaborators {
+			c.NoteID = note.ID // Ensure valid FK
+			collaborators = append(collaborators, c)
+		}
+		// Replace existing collaborators
+		db.DB.Model(&note).Association("Collaborators").Replace(collaborators)
+	} else if updateData.Collaborators != nil { // explicitly empty array
+		db.DB.Model(&note).Association("Collaborators").Clear()
+	}
+
 	db.DB.Save(&note)
+	// Return updated note with collaborators
+	db.DB.Preload("Attachments").Preload("Comments").Preload("Collaborators").First(&note, "id = ?", note.ID)
 	c.JSON(http.StatusOK, note)
 }
 

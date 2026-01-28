@@ -162,5 +162,9 @@ export const api = {
             method: 'POST',
             body: JSON.stringify({ content, quotedText })
         });
+    },
+
+    searchUsers: async (query: string) => {
+        return request<{ id: string; username: string; avatarColor: string }[]>(`/users/search?q=${encodeURIComponent(query)}`);
     }
 };

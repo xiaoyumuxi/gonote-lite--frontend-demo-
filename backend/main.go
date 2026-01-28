@@ -65,6 +65,7 @@ func main() {
 		// 扩展功能
 		api.POST("/upload", handlers.UploadFile)
 		api.POST("/notes/:id/comments", handlers.AddComment)
+		api.GET("/users/search", handlers.SearchUsers)
 	}
 
 	log.Println("Server starting on :8080")

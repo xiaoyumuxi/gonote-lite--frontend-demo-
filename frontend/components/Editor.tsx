@@ -8,7 +8,7 @@ import {
   Bold, Italic, List, Heading, Code, FileText, Trash2,
   Paperclip, X, Highlighter, LayoutPanelLeft, Eye, Plus,
   Share, Globe, Link as LinkIcon, Lock, MessageSquare, Send, AtSign,
-  Download, Image as ImageIcon, File as FileIcon, FileText as FileHeading
+  Download, Image as ImageIcon, File as FileIcon, FileText as FileHeading, Save
 } from 'lucide-react';
 import { polishContent } from '../services/aiService';
 import { api } from '../services/api';
@@ -45,6 +45,7 @@ const Editor: React.FC<EditorProps> = ({ note, notes, onUpdate, onNavigate, onDe
   const [title, setTitle] = useState('');
   const [viewMode, setViewMode] = useState<ViewMode>(ViewMode.SPLIT);
   const [isAiProcessing, setIsAiProcessing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [comments, setComments] = useState<Comment[]>([]);
   const [shareConfig, setShareConfig] = useState<ShareConfig>({ isPublic: false, publicPermission: 'read', collaborators: [] });
@@ -99,24 +100,117 @@ const Editor: React.FC<EditorProps> = ({ note, notes, onUpdate, onNavigate, onDe
   const attachmentInputRef = useRef<HTMLInputElement>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
 
+  // Ref to hold latest note state for auto-save
+  const latestNoteRef = useRef<Note | null>(null);
+
+  const prevNoteIdRef = useRef<string | null>(null);
+
   useEffect(() => {
     if (note) {
-      setContent(note.content);
-      setTitle(note.title);
-      setAttachments(note.attachments || []);
-      setComments(note.comments || []);
-      setComments(note.comments || []);
-      setShareConfig(note.shareConfig || { isPublic: false, publicPermission: 'read', collaborators: [] });
+      // Only update content/title if note ID has changed (navigation)
+      // This prevents auto-save (which updates 'note' prop) from overwriting local changes
+      if (note.id !== prevNoteIdRef.current) {
+        // New Note: Sync Everything
+        setContent(note.content);
+        setTitle(note.title);
+        setAttachments(note.attachments || []);
+        setComments(note.comments || []);
+        setShareConfig(note.shareConfig || { isPublic: false, publicPermission: 'read', collaborators: [] });
+
+        latestNoteRef.current = { ...note };
+        prevNoteIdRef.current = note.id;
+      } else {
+        // Same Note Update (e.g. from Auto-Save return or background refresh):
+        // DO NOT overwrite local title/content with prop data, as prop data might be stale vs local typing.
+        // ONLY sync fields that are managed externally or lists (attachments/comments)
+
+        setAttachments(note.attachments || []);
+        setComments(note.comments || []);
+        setShareConfig(note.shareConfig || { isPublic: false, publicPermission: 'read', collaborators: [] });
+
+        // Update ref with new external data, but PRESERVE local title/content
+        if (latestNoteRef.current) {
+          latestNoteRef.current = {
+            ...latestNoteRef.current,
+            ...note, // Take latest (e.g. updatedAt),
+            title: latestNoteRef.current.title, // Restore local
+            content: latestNoteRef.current.content, // Restore local
+            attachments: note.attachments || [], // Sync remote
+            comments: note.comments || [], // Sync remote
+            shareConfig: note.shareConfig || { isPublic: false, publicPermission: 'read', collaborators: [] } // Sync remote
+          };
+        }
+      }
     } else {
       setContent('');
       setTitle('');
       setAttachments([]);
       setComments([]);
       setShareConfig({ isPublic: false, publicPermission: 'read', collaborators: [] });
+      latestNoteRef.current = null;
+      prevNoteIdRef.current = null;
     }
   }, [note]);
 
-  // Click outside handlers
+  // Keep ref updated with latest local edits
+  useEffect(() => {
+    if (latestNoteRef.current) {
+      latestNoteRef.current = {
+        ...latestNoteRef.current,
+        title,
+        content,
+        attachments,
+        comments,
+        shareConfig
+      };
+    }
+  }, [title, content, attachments, comments, shareConfig]);
+
+  const handleSave = (overrideContent?: string) => {
+    if (!note) return;
+    setIsSaving(true);
+    onUpdate({
+      ...note,
+      title,
+      content: overrideContent !== undefined ? overrideContent : content,
+      attachments,
+      comments,
+      shareConfig,
+      updatedAt: new Date().toISOString(),
+    });
+    // Reset saving state after a short delay to show feedback
+    setTimeout(() => setIsSaving(false), 800);
+  };
+
+  // Auto-Save Logic (60s Interval + Unmount)
+  useEffect(() => {
+    const autoSaveInterval = setInterval(() => {
+      if (latestNoteRef.current && note) {
+        // Simple check: has it changed from original note prop?
+        // Or just save blindly (safer for "robustness" request)
+        // Let's check against last saved time or just save.
+        // Given user asked for "safety", saving every 60s is fine.
+        console.log("Auto-saving to database...");
+        onUpdate({
+          ...latestNoteRef.current,
+          updatedAt: new Date().toISOString()
+        });
+      }
+    }, 60000);
+
+    return () => {
+      clearInterval(autoSaveInterval);
+      // Save on unmount
+      if (latestNoteRef.current && note) {
+        console.log("Unmount save...");
+        onUpdate({
+          ...latestNoteRef.current,
+          updatedAt: new Date().toISOString()
+        });
+      }
+    };
+  }, [note, onUpdate]); // Re-bind if note changes identity (navigating)
+  // Click outside & Navigation handler
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
       if (contextMenuRef.current && !contextMenuRef.current.contains(e.target as Node)) {
@@ -132,8 +226,7 @@ const Editor: React.FC<EditorProps> = ({ note, notes, onUpdate, onNavigate, onDe
       }
     };
 
-    // Bind global navigation for Wiki Links (since we render them as raw HTML strings)
-    // In a real app with React Router, we would use a proper Link component in ReactMarkdown
+    // Bind global navigation for Wiki Links
     (window as any).navigate = (noteId: string) => {
       onNavigate(noteId);
     };
@@ -145,18 +238,7 @@ const Editor: React.FC<EditorProps> = ({ note, notes, onUpdate, onNavigate, onDe
     };
   }, [onNavigate]);
 
-  const handleSave = (overrideContent?: string) => {
-    if (!note) return;
-    onUpdate({
-      ...note,
-      title,
-      content: overrideContent !== undefined ? overrideContent : content,
-      attachments,
-      comments,
-      shareConfig,
-      updatedAt: Date.now(),
-    });
-  };
+
 
   const handlePolish = async () => {
     setIsAiProcessing(true);
@@ -217,7 +299,7 @@ const Editor: React.FC<EditorProps> = ({ note, notes, onUpdate, onNavigate, onDe
         username: response.username,
         content: response.content,
         quotedText: activeQuote,
-        createdAt: new Date(response.createdAt).getTime() // Convert ISO to timestamp
+        createdAt: new Date(response.createdAt).toISOString()
       };
 
       const updatedComments = [...comments, comment];
@@ -270,17 +352,39 @@ const Editor: React.FC<EditorProps> = ({ note, notes, onUpdate, onNavigate, onDe
     if (note) onUpdate({ ...note, shareConfig: newConfig });
   };
 
-  const handleInvite = (username: string) => {
-    // Mock Invite
-    const newCollab: Collaborator = {
-      userId: Date.now().toString(),
-      username: username,
-      avatarColor: ['bg-red-500', 'bg-blue-500', 'bg-green-500', 'bg-yellow-500'][Math.floor(Math.random() * 4)],
-      permission: 'read'
-    };
-    const newConfig = { ...shareConfig, collaborators: [...shareConfig.collaborators, newCollab] };
-    setShareConfig(newConfig);
-    if (note) onUpdate({ ...note, shareConfig: newConfig });
+  const handleInvite = async (username: string) => {
+    if (!username.trim()) return;
+    try {
+      const results = await api.searchUsers(username);
+      // Find exact match or take first
+      const targetUser = results.find(u => u.username === username) || results[0];
+
+      if (!targetUser) {
+        alert("User not found");
+        return;
+      }
+
+      // Check if already added
+      if (shareConfig.collaborators.some(c => c.userId === targetUser.id)) {
+        alert("User already added");
+        return;
+      }
+
+      const newCollab: Collaborator = {
+        userId: targetUser.id,
+        username: targetUser.username,
+        avatarColor: targetUser.avatarColor || 'bg-gray-500',
+        permission: 'read',
+        noteId: note?.id || '' // Should be set by backend or current note
+      };
+
+      const newConfig = { ...shareConfig, collaborators: [...shareConfig.collaborators, newCollab] };
+      setShareConfig(newConfig);
+      if (note) onUpdate({ ...note, shareConfig: newConfig });
+    } catch (e) {
+      console.error(e);
+      alert("Invite failed");
+    }
   };
 
   const copyShareLink = () => {
@@ -302,7 +406,7 @@ const Editor: React.FC<EditorProps> = ({ note, notes, onUpdate, onNavigate, onDe
           type: file.type,
           size: result.size,
           data: `http://localhost:8080${result.url}`, // Full URL
-          createdAt: Date.now()
+          createdAt: new Date().toISOString()
         };
 
         const newAttachments = [...attachments, newAttachment];
@@ -343,6 +447,17 @@ const Editor: React.FC<EditorProps> = ({ note, notes, onUpdate, onNavigate, onDe
         </div>
 
         <div className="flex items-center gap-1">
+          {/* Manual Save Button */}
+          <button
+            onClick={() => handleSave()}
+            className={`mr-2 px-2 py-1 rounded text-sm font-medium transition-colors flex items-center gap-1 ${isSaving ? 'text-green-600 bg-green-50' : 'text-notion-dim hover:bg-notion-hover text-notion-text'
+              }`}
+            title="Save Note (Ctrl+S)"
+          >
+            {isSaving ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+            {isSaving ? 'Saving...' : 'Save'}
+          </button>
+
           {/* Collaborators (Fake) */}
           {/* Collaborators (Fake - Using real list now) */}
           {shareConfig.collaborators.length > 0 && (

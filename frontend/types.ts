@@ -4,7 +4,7 @@ export interface Attachment {
   type: string;
   size: number;
   data: string;
-  createdAt: number;
+  createdAt: string; // ISO String
 }
 
 export interface Comment {
@@ -12,11 +12,12 @@ export interface Comment {
   userId: string;
   username: string;
   content: string;
-  quotedText?: string; // For annotations/context
-  createdAt: number;
+  quotedText?: string;
+  createdAt: string; // ISO String
 }
 
 export interface Collaborator {
+  noteId?: string;
   userId: string;
   username: string;
   avatarColor: string;
@@ -35,19 +36,19 @@ export interface Note {
   title: string;
   content: string;
   folderId: string;
-  familyId?: string; // 家庭共享笔记的家庭编号
+  familyId?: string;
   attachments?: Attachment[];
   comments?: Comment[];
   shareConfig?: ShareConfig;
-  createdAt: number;
-  updatedAt: number;
+  createdAt: string; // ISO String
+  updatedAt: string; // ISO String
 }
 
 export interface Folder {
   id: string;
   name: string;
   icon?: string;
-  familyId?: string; // 家庭共享文件夹
+  familyId?: string;
 }
 
 export interface User {
@@ -55,7 +56,7 @@ export interface User {
   username: string;
   token: string;
   avatarColor?: string;
-  familyId?: string; // 用户所属的家庭编号
+  familyId?: string;
 }
 
 export enum ViewMode {
@@ -77,14 +78,14 @@ export type CalendarType = 'solar' | 'lunar';
 export interface CalendarEvent {
   id: string;
   title: string;
-  date: number; // Timestamp
+  date: string; // ISO String
   type: CalendarType;
   recurrence: RecurrenceType;
-  notifyUsers: string[]; // User IDs
+  notifyUsers: string[];
   showCountdown: boolean;
   description?: string;
-  familyId?: string; // 家庭共享事件
-  isSystem?: boolean; // 系统事件
+  familyId?: string;
+  isSystem?: boolean;
 }
 
 export interface AppNotification {
@@ -93,7 +94,7 @@ export interface AppNotification {
   title: string;
   message: string;
   isRead: boolean;
-  createdAt: number;
+  createdAt: string; // ISO String
   type: 'reminder' | 'system' | 'mention';
 }
 

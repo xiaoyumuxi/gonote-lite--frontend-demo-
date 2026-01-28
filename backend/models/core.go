@@ -33,8 +33,9 @@ type Note struct {
 	PublicPermission string `gorm:"default:'read'" json:"publicPermission"`
 
 	// Relations
-	Attachments []Attachment `gorm:"foreignKey:NoteID" json:"attachments"`
-	Comments    []Comment    `gorm:"foreignKey:NoteID" json:"comments"`
+	Attachments   []Attachment   `gorm:"foreignKey:NoteID" json:"attachments"`
+	Comments      []Comment      `gorm:"foreignKey:NoteID" json:"comments"`
+	Collaborators []Collaborator `gorm:"foreignKey:NoteID" json:"collaborators"`
 }
 
 type Folder struct {
@@ -48,7 +49,9 @@ type Folder struct {
 }
 
 type Collaborator struct {
-	NoteID     string `gorm:"primaryKey" json:"noteId"`
-	UserID     string `gorm:"primaryKey" json:"userId"`
-	Permission string `json:"permission"`
+	NoteID      string `gorm:"primaryKey" json:"noteId"`
+	UserID      string `gorm:"primaryKey" json:"userId"`
+	Username    string `json:"username"`
+	AvatarColor string `json:"avatarColor"`
+	Permission  string `json:"permission"`
 }

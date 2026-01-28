@@ -59,8 +59,8 @@ const INITIAL_NOTE_FAMILY: Note = {
       { userId: 'u3', username: 'Sis', avatarColor: 'bg-yellow-500', permission: 'read' }
     ]
   },
-  createdAt: Date.now(),
-  updatedAt: Date.now()
+  createdAt: new Date().toISOString(),
+  updatedAt: new Date().toISOString()
 };
 
 const INITIAL_NOTE: Note = {
@@ -71,7 +71,7 @@ const INITIAL_NOTE: Note = {
   folderId: '1',
   attachments: [],
   comments: [
-    { id: 'c1', userId: 'u2', username: 'Alice', content: 'Love this new design!', quotedText: 'clean aesthetics of Notion', createdAt: Date.now() - 100000 }
+    { id: 'c1', userId: 'u2', username: 'Alice', content: 'Love this new design!', quotedText: 'clean aesthetics of Notion', createdAt: new Date(Date.now() - 100000).toISOString() }
   ],
   shareConfig: {
     isPublic: true,
@@ -81,8 +81,8 @@ const INITIAL_NOTE: Note = {
       { userId: 'u2', username: 'Alice', avatarColor: 'bg-green-500', permission: 'edit' }
     ]
   },
-  createdAt: Date.now(),
-  updatedAt: Date.now()
+  createdAt: new Date().toISOString(),
+  updatedAt: new Date().toISOString()
 };
 
 const INITIAL_NOTE_2: Note = {
@@ -102,8 +102,8 @@ Reference from [[Welcome to GoNote]]
 `,
   folderId: '3',
   attachments: [],
-  createdAt: Date.now(),
-  updatedAt: Date.now()
+  createdAt: new Date().toISOString(),
+  updatedAt: new Date().toISOString()
 };
 
 const App: React.FC = () => {
@@ -138,7 +138,7 @@ const App: React.FC = () => {
   const [newEventRecurrence, setNewEventRecurrence] = useState<'none' | 'daily' | 'weekly' | 'monthly' | 'yearly'>('none');
   const [newEventShowCountdown, setNewEventShowCountdown] = useState(true);
   const [notifications, setNotifications] = useState<AppNotification[]>([
-    { id: 'n1', userId: 'u1', title: 'Dad\'s Birthday', message: 'Coming up in 3 days!', isRead: false, createdAt: Date.now(), type: 'reminder' }
+    { id: 'n1', userId: 'u1', title: 'Dad\'s Birthday', message: 'Coming up in 3 days!', isRead: false, createdAt: new Date().toISOString(), type: 'reminder' }
   ]);
   const [showNotifications, setShowNotifications] = useState(false);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
@@ -155,6 +155,10 @@ const App: React.FC = () => {
   // Calendar Helpers
   const daysInMonth = (year: number, month: number) => new Date(year, month + 1, 0).getDate();
   const firstDayOfMonth = (year: number, month: number) => new Date(year, month, 1).getDay();
+  const formatDate = (timestamp: number) => {
+    const date = new Date(timestamp);
+    return date.toLocaleDateString(); // Simple date format
+  };
   const [currentDate, setCurrentDate] = useState(new Date());
 
   // 从后端加载数据
@@ -198,14 +202,19 @@ const App: React.FC = () => {
       // 转换后端数据格式到前端格式
       const formattedNotes = allNotes.map((n: any) => ({
         ...n,
-        createdAt: new Date(n.createdAt).getTime(),
-        updatedAt: new Date(n.updatedAt).getTime(),
-        attachments: [],
-        comments: [],
+        createdAt: n.createdAt, // Already ISO string from backend
+        updatedAt: n.updatedAt, // Already ISO string from backend
+        attachments: n.attachments || [],
+        comments: n.comments || [],
         shareConfig: {
           isPublic: n.isPublic || false,
           publicPermission: n.publicPermission || 'read',
-          collaborators: []
+          collaborators: n.collaborators?.map((c: any) => ({
+            userId: c.userId || 'unknown', // Map backend Collaborator to frontend structure
+            username: c.username || 'User',
+            avatarColor: c.avatarColor || 'bg-gray-500',
+            permission: c.permission
+          })) || []
         }
       }));
       setNotes(formattedNotes);
@@ -293,9 +302,19 @@ const App: React.FC = () => {
 
           <div className="space-y-1 mt-1 px-1">
             {dayEvents.map(ev => (
-              <div key={ev.id} className="flex items-center gap-1.5 px-1.5 py-1 bg-white hover:bg-notion-sidebar border border-notion-border/60 shadow-sm rounded-[3px] cursor-pointer transition-all">
-                <div className={`w-1.5 h-1.5 rounded-full ${ev.type === 'lunar' ? 'bg-purple-400' : 'bg-blue-400'}`} />
-                <span className="text-xs font-medium text-notion-text truncate flex-1">{ev.title}</span>
+              <div
+                key={ev.id}
+                className={`text-xs p-1 mb-1 rounded cursor-pointer transition-colors flex items-center gap-1 ${ev.type === 'lunar' ? 'bg-purple-50 text-purple-700 hover:bg-purple-100' :
+                  (ev as any).isSystem ? 'bg-gray-100 text-gray-600' :
+                    'bg-blue-50 text-blue-700 hover:bg-blue-100'
+                  }`}
+                onClick={() => {
+                  // Show event details (simplified: alert)
+                  alert(`${ev.title}\nDate: ${new Date(ev.date).toLocaleDateString()}\nRecurrence: ${ev.recurrence}`);
+                }}
+              >
+                <span className={`w-1.5 h-1.5 rounded-full ${ev.type === 'lunar' ? 'bg-purple-400' : 'bg-blue-400'}`}></span>
+                <span className="truncate flex-1 font-medium">{ev.title}</span>
                 {ev.showCountdown && <span className="text-[10px] text-notion-dim tabular-nums">
                   {Math.ceil((new Date(ev.date).getTime() - Date.now()) / (86400000))}d
                 </span>}
@@ -542,46 +561,47 @@ const App: React.FC = () => {
   const handleCreateNote = async () => {
     // 检查当前文件夹是否是家庭文件夹
     const isFamilyFolder = families.some(f => f.id === activeFolderId);
+    const currentFamilyId = isFamilyFolder ? activeFolderId : undefined;
 
-    const newNote: Note = {
-      id: Date.now().toString(),
-      title: 'Untitled',
-      content: '',
-      // 如果是家庭笔记，folderId 为空（不属于个人文件夹）；否则为当前 folderId
-      folderId: isFamilyFolder ? '' : activeFolderId,
-      attachments: [],
-      comments: [],
-      shareConfig: { isPublic: false, publicPermission: 'read', collaborators: [] },
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-      ...(isFamilyFolder ? { familyId: activeFolderId } : {}),
-    };
-
-    const noteWithFamily = newNote; // 已经是完整对象
-
-    // 先在前端显示，提供即时反馈
-    setNotes([noteWithFamily, ...notes]);
-    setActiveNoteId(newNote.id);
-    if (window.innerWidth < 768) setIsMobileMenuOpen(false);
-
-    // 异步保存到后端
     try {
+      const newNote: Note = {
+        id: Date.now().toString(), // Temp ID
+        title: 'Untitled',
+        content: '',
+        folderId: isFamilyFolder ? '' : activeFolderId, // If family folder, folderId is empty
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        attachments: [],
+        comments: [],
+        shareConfig: { isPublic: false, publicPermission: 'read', collaborators: [] },
+        ...(currentFamilyId ? { familyId: currentFamilyId } : {}),
+      };
+
+      // First, update frontend for immediate feedback
+      setNotes(prev => [newNote, ...prev]);
+      setActiveNoteId(newNote.id);
+      if (window.innerWidth < 768) setIsMobileMenuOpen(false);
+
+      // Then, save to backend
       const savedNote = await api.createNote({
         id: newNote.id,
         title: newNote.title,
         content: newNote.content,
         folderId: newNote.folderId,
-        ...(isFamilyFolder ? { familyId: activeFolderId } : {}),
+        ...(currentFamilyId ? { familyId: currentFamilyId } : {}),
       });
-      // 更新前端状态使用后端返回的数据
+
+      // Update frontend with backend-returned data (e.g., actual ID, timestamps)
       setNotes(prev => prev.map(n => n.id === newNote.id ? {
-        ...noteWithFamily,
+        ...newNote,
         ...savedNote,
-        createdAt: new Date(savedNote.createdAt).getTime(),
-        updatedAt: new Date(savedNote.updatedAt).getTime(),
+        createdAt: savedNote.createdAt,
+        updatedAt: savedNote.updatedAt,
       } : n));
+
     } catch (error) {
-      console.error('Failed to create note:', error);
+      console.error("Create note failed", error);
+      alert("Failed to create note");
     }
   };
 
