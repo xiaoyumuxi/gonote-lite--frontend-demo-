@@ -11,6 +11,7 @@ import {
   Download, Image as ImageIcon, File as FileIcon, FileText as FileHeading
 } from 'lucide-react';
 import { polishContent } from '../services/aiService';
+import { api } from '../services/api';
 
 // Helper for file size
 const formatBytes = (bytes: number, decimals = 2) => {
@@ -204,21 +205,31 @@ const Editor: React.FC<EditorProps> = ({ note, notes, onUpdate, onNavigate, onDe
     setContextMenu(null);
   };
 
-  const submitComment = () => {
-    if (!newComment.trim()) return;
-    const comment: Comment = {
-      id: Date.now().toString(),
-      userId: currentUser.id,
-      username: currentUser.username,
-      content: newComment,
-      quotedText: activeQuote,
-      createdAt: Date.now()
-    };
-    const updatedComments = [...comments, comment];
-    setComments(updatedComments);
-    setNewComment('');
-    setActiveQuote('');
-    if (note) onUpdate({ ...note, comments: updatedComments });
+  const submitComment = async () => {
+    if (!newComment.trim() || !note) return;
+
+    try {
+      const response = await api.addComment(note.id, newComment, activeQuote);
+
+      const comment: Comment = {
+        id: response.id, // Use real ID
+        userId: currentUser.id, // Current User context
+        username: response.username,
+        content: response.content,
+        quotedText: activeQuote,
+        createdAt: new Date(response.createdAt).getTime() // Convert ISO to timestamp
+      };
+
+      const updatedComments = [...comments, comment];
+      setComments(updatedComments);
+      setNewComment('');
+      setActiveQuote('');
+      // Optimistically update note prop to reflect count change without full reload
+      onUpdate({ ...note, comments: updatedComments });
+    } catch (e) {
+      console.error(e);
+      alert('Failed to post comment');
+    }
   };
 
   const applyColor = (color: string) => {
@@ -279,22 +290,28 @@ const Editor: React.FC<EditorProps> = ({ note, notes, onUpdate, onNavigate, onDe
     }
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
-      // Mock Upload
-      const newAttachment: Attachment = {
-        id: Date.now().toString(),
-        name: file.name,
-        type: file.type,
-        size: file.size,
-        data: URL.createObjectURL(file), // Mock URL
-        createdAt: Date.now()
-      };
+      try {
+        const result = await api.uploadFile(file);
 
-      const newAttachments = [...attachments, newAttachment];
-      setAttachments(newAttachments);
-      if (note) onUpdate({ ...note, attachments: newAttachments });
+        const newAttachment: Attachment = {
+          id: Date.now().toString(), // Helper ID for React Key (Backend ID not critical for display list)
+          name: result.filename,
+          type: file.type,
+          size: result.size,
+          data: `http://localhost:8080${result.url}`, // Full URL
+          createdAt: Date.now()
+        };
+
+        const newAttachments = [...attachments, newAttachment];
+        setAttachments(newAttachments);
+        if (note) onUpdate({ ...note, attachments: newAttachments });
+      } catch (error) {
+        console.error("Upload error:", error);
+        alert("Upload failed");
+      }
       e.target.value = ''; // Reset input
     }
   };

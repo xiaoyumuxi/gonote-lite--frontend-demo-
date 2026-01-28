@@ -28,6 +28,8 @@ func Connect() {
 		&models.Collaborator{},
 		&models.Family{},
 		&models.FamilyMember{},
+		&models.Attachment{},
+		&models.Comment{},
 	)
 	if err != nil {
 		log.Fatal("Failed to migrate database:", err)

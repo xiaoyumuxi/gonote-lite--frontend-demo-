@@ -136,4 +136,31 @@ export const api = {
     getFamilyEvents: async (familyId: string) => {
         return request<CalendarEvent[]>(`/family/${familyId}/events`);
     },
+
+    // Extra - 附件与评论
+    uploadFile: async (file: File) => {
+        const formData = new FormData();
+        formData.append('file', file);
+
+        // Use raw fetch for FormData to avoid Content-Type header conflict
+        const token = getToken();
+        const headers: Record<string, string> = {};
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+
+        const response = await fetch(`${API_BASE}/upload`, {
+            method: 'POST',
+            body: formData,
+            headers
+        });
+
+        if (!response.ok) throw new Error('Upload failed');
+        return response.json() as Promise<{ url: string; filename: string; size: number }>;
+    },
+
+    addComment: async (noteId: string, content: string, quotedText?: string) => {
+        return request<{ id: string; content: string; username: string; createdAt: string }>(`/notes/${noteId}/comments`, {
+            method: 'POST',
+            body: JSON.stringify({ content, quotedText })
+        });
+    }
 };

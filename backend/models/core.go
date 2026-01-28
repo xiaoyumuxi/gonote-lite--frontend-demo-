@@ -31,6 +31,10 @@ type Note struct {
 	// Sharing Configuration
 	IsPublic         bool   `gorm:"default:false" json:"isPublic"`
 	PublicPermission string `gorm:"default:'read'" json:"publicPermission"`
+
+	// Relations
+	Attachments []Attachment `gorm:"foreignKey:NoteID" json:"attachments"`
+	Comments    []Comment    `gorm:"foreignKey:NoteID" json:"comments"`
 }
 
 type Folder struct {

@@ -27,6 +27,9 @@ func main() {
 		c.Next()
 	})
 
+	// Static Files (Uploads)
+	r.Static("/uploads", "./uploads")
+
 	// JWT 认证中间件
 	r.Use(middleware.JWTAuthMiddleware())
 
@@ -58,6 +61,10 @@ func main() {
 		api.POST("/notes", handlers.CreateNote)
 		api.PUT("/notes/:id", handlers.UpdateNote)
 		api.DELETE("/notes/:id", handlers.DeleteNote)
+
+		// 扩展功能
+		api.POST("/upload", handlers.UploadFile)
+		api.POST("/notes/:id/comments", handlers.AddComment)
 	}
 
 	log.Println("Server starting on :8080")
