@@ -36,6 +36,7 @@ func main() {
 	api := r.Group("/api")
 	{
 		api.POST("/auth/login", handlers.Login)
+		api.POST("/auth/register", handlers.Register)
 		
 		api.GET("/events", handlers.GetEvents)
 		api.POST("/events", handlers.CreateEvent)

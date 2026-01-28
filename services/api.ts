@@ -29,6 +29,14 @@ export const api = {
         });
     },
 
+    // Auth - 注册
+    register: async (username: string, password: string) => {
+        return request<{ message: string; token: string; user: any }>('/auth/register', {
+            method: 'POST',
+            body: JSON.stringify({ username, password }),
+        });
+    },
+
     // Events - 日历事件
     getEvents: async () => {
         return request<CalendarEvent[]>('/events');

@@ -123,6 +123,7 @@ const App: React.FC = () => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [isRegistering, setIsRegistering] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
 
   // Calendar State
   const [view, setView] = useState<'notes' | 'calendar'>('notes');
@@ -278,48 +279,57 @@ const App: React.FC = () => {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (username && password) {
-      try {
-        const data = await api.login(username, password);
-        if (data.user) {
-          localStorage.setItem('gonote_user', JSON.stringify(data.user));
-          setUser(data.user);
-          // 登录成功后加载数据
-          await loadDataFromBackend();
-        }
-      } catch (error) {
-        console.error('Login failed:', error);
-        // Fallback to local mock for demo
-        const newUser = { id: 'u1', username, token: 'mock-token', avatarColor: 'bg-blue-600' };
-        localStorage.setItem('gonote_user', JSON.stringify(newUser));
-        setUser(newUser);
-        // 降级使用 mock 数据
-        setNotes([INITIAL_NOTE, INITIAL_NOTE_2, INITIAL_NOTE_FAMILY]);
+    setAuthError(null);
+
+    if (!username || !password) {
+      setAuthError('请输入用户名和密码');
+      return;
+    }
+
+    try {
+      const data = await api.login(username, password);
+      if (data.user) {
+        localStorage.setItem('gonote_user', JSON.stringify(data.user));
+        setUser(data.user);
+        // 登录成功后加载数据
+        await loadDataFromBackend();
       }
+    } catch (error: any) {
+      console.error('Login failed:', error);
+      setAuthError(error.message || '登录失败，请检查用户名和密码');
     }
   };
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (username && password) {
-      try {
-        const response = await fetch('http://localhost:8080/api/auth/login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username, password }),
-        });
-        const data = await response.json();
-        if (data.user) {
-          localStorage.setItem('gonote_user', JSON.stringify(data.user));
-          setUser(data.user);
-        }
-      } catch (error) {
-        console.error('Register failed:', error);
-        // Fallback to local mock for demo
-        const newUser = { id: Date.now().toString(), username, token: 'mock-token', avatarColor: 'bg-green-600' };
-        localStorage.setItem('gonote_user', JSON.stringify(newUser));
-        setUser(newUser);
+    setAuthError(null);
+
+    if (!username || !password) {
+      setAuthError('请输入用户名和密码');
+      return;
+    }
+
+    if (username.length < 3) {
+      setAuthError('用户名至少3个字符');
+      return;
+    }
+
+    if (password.length < 6) {
+      setAuthError('密码至少6个字符');
+      return;
+    }
+
+    try {
+      const data = await api.register(username, password);
+      if (data.user) {
+        localStorage.setItem('gonote_user', JSON.stringify(data.user));
+        setUser(data.user);
+        // 注册成功后加载数据（新用户一般没有数据）
+        await loadDataFromBackend();
       }
+    } catch (error: any) {
+      console.error('Register failed:', error);
+      setAuthError(error.message || '注册失败，请稍后重试');
     }
   };
 
@@ -433,36 +443,42 @@ const App: React.FC = () => {
           </div>
 
           <form onSubmit={isRegistering ? handleRegister : handleLogin} className="space-y-4">
+            {/* 错误信息显示 */}
+            {authError && (
+              <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-600 text-sm">
+                {authError}
+              </div>
+            )}
             <input
               type="text"
               required
               value={username}
-              onChange={e => setUsername(e.target.value)}
+              onChange={e => { setUsername(e.target.value); setAuthError(null); }}
               className="w-full px-4 py-3 bg-notion-sidebar border border-notion-border rounded-lg focus:outline-none focus:ring-2 focus:ring-notion-dim/20 transition-all placeholder:text-notion-dim/50"
-              placeholder="Username"
+              placeholder={isRegistering ? "用户名 (至少3个字符)" : "用户名"}
             />
             <input
               type="password"
               required
               value={password}
-              onChange={e => setPassword(e.target.value)}
+              onChange={e => { setPassword(e.target.value); setAuthError(null); }}
               className="w-full px-4 py-3 bg-notion-sidebar border border-notion-border rounded-lg focus:outline-none focus:ring-2 focus:ring-notion-dim/20 transition-all placeholder:text-notion-dim/50"
-              placeholder="Password"
+              placeholder={isRegistering ? "密码 (至少6个字符)" : "密码"}
             />
             <button
               type="submit"
               className="w-full bg-notion-text hover:bg-black text-white font-medium py-3 rounded-lg transition-all shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
             >
-              {isRegistering ? 'Sign Up' : 'Continue'}
+              {isRegistering ? '注册' : '登录'}
             </button>
           </form>
 
           <div className="mt-6 text-center">
             <button
-              onClick={() => setIsRegistering(!isRegistering)}
+              onClick={() => { setIsRegistering(!isRegistering); setAuthError(null); }}
               className="text-sm text-notion-dim hover:text-notion-text hover:underline transition-colors"
             >
-              {isRegistering ? 'Already have an account? Sign in' : "Don't have an account? Sign up"}
+              {isRegistering ? '已有账号？点击登录' : '没有账号？点击注册'}
             </button>
           </div>
         </div>
