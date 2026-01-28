@@ -79,7 +79,11 @@ func UpdateNote(c *gin.Context) {
 	// Update fields
 	note.Title = updateData.Title
 	note.Content = updateData.Content
-	note.UpdatedAt = updateData.UpdatedAt // Sync time from frontend or use database time
+	note.UpdatedAt = updateData.UpdatedAt
+	note.FolderID = updateData.FolderID
+	note.IsPublic = updateData.IsPublic
+	note.PublicPermission = updateData.PublicPermission
+	note.FamilyID = updateData.FamilyID
 
 	db.DB.Save(&note)
 	c.JSON(http.StatusOK, note)
